@@ -1,6 +1,7 @@
 """Worker targets that misbehave on purpose, for the pool tests."""
 import os
 import time
+from multiprocessing import reduction
 
 
 def misbehaving_worker(connection, settings):
@@ -11,6 +12,8 @@ def misbehaving_worker(connection, settings):
             break
         if task is None:
             break
+        for _ in range(task['handles']):
+            os.close(reduction.recv_handle(connection))
         name = task['name']
         if name.startswith('hang_after_hash'):
             connection.send(('hash', 'abc123'))

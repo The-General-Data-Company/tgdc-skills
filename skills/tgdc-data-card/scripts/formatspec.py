@@ -10,6 +10,7 @@ import hashlib
 import json
 import multiprocessing
 import multiprocessing.connection
+import multiprocessing.reduction as reduction
 import os
 import re
 import shutil
@@ -338,20 +339,28 @@ class Cache:
 
 
 # --------------------------------------------------------------------------- worker
-def _open_regular(path, identity):
+def open_verified(path, identity):
+    """Open a file without following links; (descriptor, None) or (None, reason)."""
     try:
         descriptor = open_nofollow(path)
     except OSError:
         return None, 'io_error'
-    stream = os.fdopen(descriptor, 'rb')
-    info = os.fstat(stream.fileno())
-    if not stat.S_ISREG(info.st_mode):
-        stream.close()
+    try:
+        info = os.fstat(descriptor)
+        if not stat.S_ISREG(info.st_mode):
+            raise OSError('not a regular file')
+        if identity is not None and (info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns) != tuple(identity):
+            os.close(descriptor)
+            return None, 'changed'
+    except OSError:
+        os.close(descriptor)
         return None, 'io_error'
-    if identity is not None and (info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns) != tuple(identity):
-        stream.close()
-        return None, 'changed'
-    return stream, None
+    return descriptor, None
+
+
+def _open_regular(path, identity):
+    descriptor, problem = open_verified(path, identity)
+    return (os.fdopen(descriptor, 'rb'), None) if descriptor is not None else (None, problem)
 
 
 def _facts_for_stream(extension, stream, data, settings, deadline):
@@ -363,14 +372,20 @@ def _facts_for_stream(extension, stream, data, settings, deadline):
     return {}
 
 
-def process_task(task, settings, stage):
-    """Hash one file and extract its facts. Returns a JSON-ready dictionary; never raises."""
-    path, name = task['path'], task['name']
+def process_task(task, settings, stage, descriptors):
+    """Hash one file and extract its facts. The file arrives as an open descriptor, never as a path.
+
+    Returns a JSON-ready dictionary and never raises."""
+    name = task['name']
     extension = raw_extension(name)
-    stream, problem = _open_regular(path, task['identity'])
-    if stream is None:
-        return {'status': problem}
+    streams = [os.fdopen(descriptor, 'rb') for descriptor in descriptors]
+    stream = streams[0]
     try:
+        info = os.fstat(stream.fileno())
+        if not stat.S_ISREG(info.st_mode):
+            return {'status': 'io_error'}
+        if (info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns) != tuple(task['identity']):
+            return {'status': 'changed'}
         size = task['identity'][2]
         keep = size <= settings['member_parse_bytes']
         digest = hashlib.sha256()
@@ -404,53 +419,46 @@ def process_task(task, settings, stage):
                 result['mbox'] = spec_content.analyze_mbox(stream, set(task.get('known', ())), settings['max_message_bytes'],
                                                            deadline=now + settings['archive_seconds'])
             elif role == 'leader' and task.get('style') == 'num':
-                result['arch'] = _read_archive(task, stream, size, name, None, head, settings)
+                result['arch'] = _read_archive(task, streams, size, name, None, settings)
             elif role != 'follower' and spec_archives.archive_kind(name, head):
-                result['arch'] = _read_archive(task, stream, size, name, spec_archives.archive_kind(name, head), head, settings)
+                result['arch'] = _read_archive(task, streams, size, name, spec_archives.archive_kind(name, head), settings)
             else:
                 result.update(_facts_for_stream(extension, stream, data, settings, deadline))
         except Exception:
             result['unreadable'] = True
         return result
     finally:
-        stream.close()
+        for item in streams:
+            item.close()
 
 
-def _read_archive(task, stream, size, name, kind, head, settings):
+def _read_archive(task, streams, size, name, kind, settings):
+    """Read an archive from its open volumes (the first is the leader); temporary files live in a private folder."""
     folder = tempfile.mkdtemp(dir=settings['temp_dir'])
-    opened_streams = []
+    opened = []
     try:
         limits = {'max_expanded_bytes': settings['max_archive_bytes'], 'max_ratio': settings['max_archive_ratio'],
                   'max_depth': settings['max_depth'], 'member_parse_bytes': settings['member_parse_bytes']}
         reader = spec_archives.Reader(folder, tools=settings['tools'], limits=limits, deadline=time.monotonic() + settings['archive_seconds'])
         parts = None
         compressed = size
-        source, source_name = stream, name
-        if task.get('role') == 'leader' and task.get('parts'):
+        source, source_name = streams[0], name
+        if task.get('role') == 'leader' and len(streams) > 1:
+            names = task['part_names']
             if task.get('style') == 'num':
                 joined = os.path.join(folder, 'joined')
                 with open(joined, 'wb') as target:
-                    for part_path in task['parts']:
-                        part, problem = _open_regular(part_path, None)
-                        if part is None:
-                            continue
-                        with part:
-                            shutil.copyfileobj(part, target, 1024 * 1024)
+                    for part in streams:
+                        part.seek(0)
+                        shutil.copyfileobj(part, target, 1024 * 1024)
                 source = open(joined, 'rb')
-                opened_streams.append(source)
+                opened.append(source)
                 source_name = re.sub(r'\.\d{3,}$', '', name)
                 kind = spec_archives.archive_kind(source_name, source.read(600))
-                source.seek(0)
                 compressed = os.path.getsize(joined)
             else:
-                parts = []
-                compressed = 0
-                for part_path in task['parts']:
-                    part, problem = _open_regular(part_path, None)
-                    if part is not None:
-                        opened_streams.append(part)
-                        parts.append((os.path.basename(part_path), part))
-                        compressed += os.fstat(part.fileno()).st_size
+                parts = list(zip(names, streams))
+                compressed = sum(os.fstat(part.fileno()).st_size for part in streams)
         if not kind:
             return {'kind': None, 'ok': False, 'opened': 0}
         source.seek(0)
@@ -459,11 +467,8 @@ def _read_archive(task, stream, size, name, kind, head, settings):
                 'failed': dict(reader.failed), 'used': dict(reader.used), 'hidden': reader.hidden, 'timeout': reader.timed_out,
                 'members': reader.members}
     finally:
-        for item in opened_streams:
-            try:
-                item.close()
-            except OSError:
-                pass
+        for item in opened:
+            item.close()
         shutil.rmtree(folder, ignore_errors=True)
 
 
@@ -479,8 +484,9 @@ def worker_main(connection, settings):
                 break
             if task is None:
                 break
+            descriptors = [reduction.recv_handle(connection) for _ in range(task['handles'])]
             try:
-                result = process_task(task, settings, lambda sha: connection.send(('hash', sha)))
+                result = process_task(task, settings, lambda sha: connection.send(('hash', sha)), descriptors)
             except Exception:
                 result = {'status': 'error'}
             connection.send(('done', result))
@@ -514,6 +520,25 @@ class Worker:
             self.process.join(timeout=2)
 
 
+MAX_VOLUMES = 200
+
+
+def open_volumes(task):
+    """Open the file and, for the first volume of a multi-part archive, its other volumes, all without following links."""
+    descriptor, problem = open_verified(task['path'], task['identity'])
+    if problem:
+        return [], problem
+    descriptors = [descriptor]
+    names = [task['name']]
+    for path in (task.get('parts') or [])[1:MAX_VOLUMES]:
+        extra, _ = open_verified(path, None)
+        if extra is not None:
+            descriptors.append(extra)
+            names.append(os.path.basename(path))
+    task['part_names'] = names
+    return descriptors, None
+
+
 def run_pool(tasks, count, settings, on_result, target=None):
     """Run tasks on worker processes. A worker that exceeds its deadline or dies is replaced; the file is recorded as such."""
     context = multiprocessing.get_context('spawn')
@@ -522,11 +547,25 @@ def run_pool(tasks, count, settings, on_result, target=None):
     try:
         while pending or any(worker.task for worker in workers):
             for worker in workers:
-                if worker.task is None and pending:
+                while worker.task is None and pending:
                     task = pending.popleft()
+                    descriptors, problem = open_volumes(task)
+                    if problem:
+                        on_result(task, {'status': problem})
+                        continue
                     worker.task, worker.sha = task, None
                     worker.deadline = time.monotonic() + max(settings['hash_floor_seconds'], task['identity'][2] / 1e6 * 2)
-                    worker.connection.send(task)
+                    try:
+                        message = {key: value for key, value in task.items() if key not in ('path', 'parts')}
+                        message['handles'] = len(descriptors)
+                        worker.connection.send(message)
+                        for descriptor in descriptors:
+                            reduction.send_handle(worker.connection, descriptor, worker.process.pid)
+                    except (OSError, ValueError):
+                        worker.deadline = 0
+                    finally:
+                        for descriptor in descriptors:
+                            os.close(descriptor)
             busy = [worker for worker in workers if worker.task is not None]
             ready = multiprocessing.connection.wait([worker.connection for worker in busy], timeout=1.0)
             for worker in busy:

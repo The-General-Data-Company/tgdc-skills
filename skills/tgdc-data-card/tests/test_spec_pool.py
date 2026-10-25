@@ -14,22 +14,31 @@ import spec_pool_targets
 SETTINGS = {**formatspec.SETTINGS_DEFAULTS, 'parse_seconds': 0.3, 'archive_seconds': 0.3, 'grace_seconds': 0.2, 'hash_floor_seconds': 0.5}
 
 
-def task(name, size=10):
-    return {'id': name.encode(), 'name': name, 'path': '/x', 'identity': (1, 1, size, 1)}
-
-
 class PoolTests(unittest.TestCase):
+    def make_tasks(self, folder, names):
+        tasks = []
+        for name in names:
+            path = Path(folder) / name
+            path.write_bytes(b'0123456789')
+            info = path.stat()
+            tasks.append({'id': name.encode(), 'name': name, 'path': str(path), 'identity': (info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns)})
+        return tasks
+
     def test_hung_and_crashed_workers_are_replaced_and_the_rest_finishes(self):
         results = {}
         names = ['ok_one', 'hang_after_hash', 'crash_now', 'hang_before_hash', 'ok_two', 'ok_three']
-        formatspec.run_pool([task(name) for name in names], 2, SETTINGS, lambda t, r: results.__setitem__(t['name'], r),
-                            target=spec_pool_targets.misbehaving_worker)
-        self.assertEqual(sorted(results), sorted(names))
+        with tempfile.TemporaryDirectory() as folder:
+            folder = Path(folder).resolve()
+            tasks = self.make_tasks(folder, names)
+            vanished = {**tasks[0], 'name': 'gone', 'path': str(Path(folder) / 'gone')}
+            formatspec.run_pool(tasks + [vanished], 2, SETTINGS, lambda t, r: results.__setitem__(t['name'], r), target=spec_pool_targets.misbehaving_worker)
+        self.assertEqual(sorted(results), sorted(names + ['gone']))
         self.assertEqual(results['ok_one']['status'], 'ok')
         self.assertEqual(results['hang_after_hash'], {'status': 'timeout', 'sha': 'abc123'})
         self.assertEqual(results['crash_now'], {'status': 'crashed', 'sha': 'def456'})
         self.assertEqual(results['hang_before_hash'], {'status': 'timeout'})
         self.assertEqual(results['ok_three']['status'], 'ok')
+        self.assertEqual(results['gone'], {'status': 'io_error'})        # reported by the main process; no worker is involved
 
 
 class ReadTests(unittest.TestCase):
@@ -45,23 +54,33 @@ class ReadTests(unittest.TestCase):
         info = path.stat()
         return {'id': name.encode(), 'name': name, 'path': str(path), 'identity': (info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns)}
 
+    def process(self, job, identity_check=True):
+        descriptor, problem = formatspec.open_verified(job['path'], job['identity'] if identity_check else None)
+        if problem:
+            return {'status': problem}
+        stages = []
+        result = formatspec.process_task(job, self.settings, stages.append, [descriptor])
+        return result if result.get('status') != 'ok' else {**result, 'stages': stages}
+
     def test_hash_matches_and_a_changed_file_is_reported(self):
         import hashlib
         job = self.make('a.txt', b'hello world ' * 3)
-        stages = []
-        result = formatspec.process_task(job, self.settings, stages.append)
+        result = self.process(job)
         self.assertEqual(result['sha'], hashlib.sha256(b'hello world ' * 3).hexdigest())
-        self.assertEqual(stages, [result['sha']])
+        self.assertEqual(result['stages'], [result['sha']])
         (self.base / 'a.txt').write_bytes(b'different size now')
-        self.assertEqual(formatspec.process_task(job, self.settings, stages.append), {'status': 'changed'})
+        self.assertEqual(self.process(job), {'status': 'changed'})                          # caught when the main process opens it
+        self.assertEqual(self.process(job, identity_check=False), {'status': 'changed'})    # and again by the worker itself
 
     def test_a_link_in_place_of_a_file_is_never_followed(self):
         job = self.make('b.txt', b'real content')
         (self.base / 'b.txt').unlink()
         (self.base / 'target.txt').write_bytes(b'secret target')
         (self.base / 'b.txt').symlink_to(self.base / 'target.txt')
-        self.assertEqual(formatspec.process_task(job, self.settings, lambda sha: None), {'status': 'io_error'})
-        self.assertEqual(formatspec.process_task({**job, 'path': str(self.base / 'missing.txt')}, self.settings, lambda sha: None), {'status': 'io_error'})
+        self.assertEqual(self.process(job), {'status': 'io_error'})
+        self.assertEqual(self.process({**job, 'path': str(self.base / 'missing.txt')}), {'status': 'io_error'})
+        (self.base / 'folder').mkdir()
+        self.assertEqual(self.process({**job, 'path': str(self.base / 'folder')}), {'status': 'io_error'})
 
     def test_walk_never_enters_links_hidden_or_credential_folders(self):
         (self.base / 'root').mkdir()
