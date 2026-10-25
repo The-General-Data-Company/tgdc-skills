@@ -89,6 +89,71 @@ The full operator guide is in [`skills/tgdc-clean-copy/references/operator-guide
 
 The agent asks you five times: a short interview, a check of about 200 pilot files, one review list, a go before copying, and a final quality check. In between it works on its own. Large drives can take many hours because scanned documents need OCR.
 
+## tgdc-data-card
+
+Profiles files and folders you select on your own machine and builds a reviewable PDF data card. Every statement in the card is labeled as measured, inferred, or declared by you:
+
+1. **Measured and inferred:** file counts and sizes, formats, duplicates, rows, pages, words, dates, and the share of English in a bounded text sample, all computed locally by `scripts/datacard.py`.
+2. **Declared by you:** context no file can show, such as your rights to share the data, the business behind it, and how records relate to cases. The agent asks only about gaps, at most three questions at a time, and you can skip any of them.
+
+**What it never does**
+
+- It never changes, moves, or deletes your files, and it never follows symbolic links.
+- It never emails, uploads, or submits anything by itself. You decide whether to share the PDF.
+- Its scripts make no network requests and use no telemetry. Only the Python package setup downloads software, from PyPI, never your data.
+- It never reads a file before you confirm that you are authorized to use the selection and that it excludes HIPAA protected health information and payment-card data.
+- It never certifies anything. The PDF is not an anonymization, a privacy check, or proof of your rights to share.
+
+**What you get** (in a report folder you choose, outside the selected files)
+
+- `TGDC-Data-Card.pdf`: the data card, in English.
+- `profile.json`: the aggregate evidence behind it, without file names, paths, or file text.
+- `answers.json`: your answers as you gave them.
+- `manifest.private.json`: the file-by-file record. It stays on your machine. Do not share it.
+
+### Before you start
+
+- Python 3.10 or newer on macOS or Linux. Only macOS with Python 3.12 is tested. Windows is not supported.
+- A coding agent that can run commands and read the files you select.
+- Your agent's AI provider processes what the agent sees: your request, the folders you name, the aggregate results, and your answers. Check its account and permission settings first, and select only files you are authorized to use. The agent is instructed to read only `profile.json`, but the skill cannot technically stop an agent with file access from reading more.
+- Review the PDF and `profile.json` before you share anything. Your answers can contain confidential details, and they appear in the PDF.
+
+### Install
+
+**1. The skill** (download a pinned release and verify its checksum)
+```sh
+V=1.0.0
+R=https://github.com/The-General-Data-Company/tgdc-skills/releases/download/tgdc-data-card-v$V
+curl -fsSLO $R/tgdc-data-card-v$V.tar.gz
+curl -fsSLO $R/SHA256SUMS
+shasum -a 256 -c SHA256SUMS --ignore-missing
+mkdir -p <FOLDER> && tar -xzf tgdc-data-card-v$V.tar.gz -C <FOLDER>
+```
+On Linux, use `sha256sum` instead of `shasum -a 256`.
+
+| Agent | `<FOLDER>` | Start the skill |
+|---|---|---|
+| Claude Code | `.claude/skills` | `/tgdc-data-card The files are: /path/to/folder. Put the report in: /path/to/report` |
+| OpenAI Codex | `.agents/skills` | `$tgdc-data-card The files are: /path/to/folder. Put the report in: /path/to/report` |
+| GitHub Copilot, Cursor, Gemini CLI, Amp, OpenCode, Goose | `.agents/skills` | `/tgdc-data-card` or "Use the tgdc-data-card skill. The files are: /path/to/folder. Put the report in: /path/to/report" |
+| Qwen Code | `.qwen/skills` | `/tgdc-data-card The files are: /path/to/folder. Put the report in: /path/to/report` |
+| Trae | `.trae/skills` | "Use the tgdc-data-card skill. The files are: /path/to/folder. Put the report in: /path/to/report" |
+| Any other agent | `.agents/skills` | "Read .agents/skills/tgdc-data-card/SKILL.md completely and follow it. The files are: /path/to/folder. Put the report in: /path/to/report" |
+
+**2. Python packages.** If compatible packages are not already available, the skill explains the download, then creates an isolated virtual environment in your report folder and installs the pinned packages from PyPI (`scripts/requirements.txt`).
+
+The privacy notes are in [`skills/tgdc-data-card/references/privacy.md`](skills/tgdc-data-card/references/privacy.md).
+
+### Use
+
+The agent works in this order:
+
+1. It asks which files or folders to examine and where to put the report, and asks you to confirm the authorization and exclusions above.
+2. It runs the profile script and reads the aggregate result.
+3. It asks about missing context. You can skip any question or ask for a draft right away.
+4. It renders the PDF and shows it to you.
+5. It gives you the file paths. The skill sends nothing, so you decide whether and how to share the PDF.
+
 ## Security
 
 See [SECURITY.md](SECURITY.md).

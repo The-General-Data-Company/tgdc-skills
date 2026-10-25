@@ -1,0 +1,1375 @@
+{
+  "catalog_version": "1.0",
+  "purpose": "Optional descriptive target catalog; not 150 implemented automatic functions or a mandatory questionnaire.",
+  "provider_context_contract": "Additional plain-string answers may be keyed by these field IDs. They remain provider-declared and never replace measured profile metrics. Skip irrelevant or unanswered fields.",
+  "automatic_metrics": [
+    "selected_files",
+    "documents_processed",
+    "files_with_extracted_text",
+    "selected_bytes",
+    "format_file_shares",
+    "duplicate_files",
+    "rows_processed",
+    "rows_known_total",
+    "pdf_pages_processed",
+    "pdf_pages_known_total",
+    "pdf_no_text_pages",
+    "extracted_characters",
+    "extracted_words",
+    "filesystem_mtime_bounds",
+    "eml_content_date_bounds",
+    "english_document_share"
+  ],
+  "fields": [
+    {
+      "id": "dataset_id",
+      "level": "dataset",
+      "description": "Stable dataset identifier independent of its filename.",
+      "evidence_class": "measured target",
+      "v1_status": "external_not_implemented",
+      "v1_mapping": null,
+      "sharing": "Descriptions only. Identifiers, paths, raw text and sensitive references stay private by default."
+    },
+    {
+      "id": "dataset_title",
+      "level": "dataset",
+      "description": "Provider-approved short dataset title.",
+      "evidence_class": "provider-declared",
+      "v1_status": "provider_context",
+      "v1_mapping": null,
+      "sharing": "Descriptions only. Identifiers, paths, raw text and sensitive references stay private by default."
+    },
+    {
+      "id": "dataset_record_unit",
+      "level": "dataset",
+      "description": "Definition of the counted unit; files, rows, messages and cases differ.",
+      "evidence_class": "provider-declared",
+      "v1_status": "provider_context",
+      "v1_mapping": null,
+      "sharing": "Descriptions only. Identifiers, paths, raw text and sensitive references stay private by default."
+    },
+    {
+      "id": "dataset_business_profile",
+      "level": "dataset",
+      "description": "Business activity and context in which the data was produced.",
+      "evidence_class": "provider-declared",
+      "v1_status": "provider_context",
+      "v1_mapping": null,
+      "sharing": "Descriptions only. Identifiers, paths, raw text and sensitive references stay private by default."
+    },
+    {
+      "id": "dataset_departments",
+      "level": "dataset",
+      "description": "Departments contributing to the selected dataset.",
+      "evidence_class": "provider-declared",
+      "v1_status": "provider_context",
+      "v1_mapping": null,
+      "sharing": "Descriptions only. Identifiers, paths, raw text and sensitive references stay private by default."
+    },
+    {
+      "id": "dataset_countries",
+      "level": "dataset",
+      "description": "Countries relevant to the business context, explicitly declared.",
+      "evidence_class": "provider-declared",
+      "v1_status": "provider_context",
+      "v1_mapping": null,
+      "sharing": "Descriptions only. Identifiers, paths, raw text and sensitive references stay private by default."
+    },
+    {
+      "id": "dataset_snapshot_at",
+      "level": "dataset",
+      "description": "Time of this inventory snapshot, with timezone.",
+      "evidence_class": "measured target",
+      "v1_status": "automatic_scope_metadata",
+      "v1_mapping": "generated_at",
+      "sharing": "Descriptions only. Identifiers, paths, raw text and sensitive references stay private by default."
+    },
+    {
+      "id": "dataset_schema_version",
+      "level": "dataset",
+      "description": "Version of the dataset description contract.",
+      "evidence_class": "provider-declared",
+      "v1_status": "automatic_scope_metadata",
+      "v1_mapping": "schema_version",
+      "sharing": "Descriptions only. Identifiers, paths, raw text and sensitive references stay private by default."
+    },
+    {
+      "id": "dataset_scope_summary",
+      "level": "dataset",
+      "description": "Included, excluded and inaccessible parts of the selected scope.",
+      "evidence_class": "provider-declared",
+      "v1_status": "provider_context",
+      "v1_mapping": null,
+      "sharing": "Descriptions only. Identifiers, paths, raw text and sensitive references stay private by default."
+    },
+    {
+      "id": "dataset_inventory_complete",
+      "level": "dataset",
+      "description": "Whether the selected scope was fully enumerated within limits.",
+      "evidence_class": "measured target",
+      "v1_status": "automatic_scope_metadata",
+      "v1_mapping": "scope.enumeration_complete",
+      "sharing": "Descriptions only. Identifiers, paths, raw text and sensitive references stay private by default."
+    },
+    {
+      "id": "dataset_selection_roots",
+      "level": "dataset",
+      "description": "Locally authorized input roots; keep actual paths private.",
+      "evidence_class": "measured target",
+      "v1_status": "external_not_implemented",
+      "v1_mapping": null,
+      "sharing": "Descriptions only. Identifiers, paths, raw text and sensitive references stay private by default."
+    },
+    {
+      "id": "dataset_file_count",
+      "level": "dataset",
+      "description": "Enumerated regular files in a named scope, avoiding repeated selections.",
+      "evidence_class": "measured target",
+      "v1_status": "automatic_scope_metadata",
+      "v1_mapping": "inventory.files; metrics.selected_files",
+      "sharing": "Descriptions only. Identifiers, paths, raw text and sensitive references stay private by default."
+    },
+    {
+      "id": "dataset_unique_file_count",
+      "level": "dataset",
+      "description": "Distinct fully hashed byte sequences; no semantic uniqueness claim.",
+      "evidence_class": "measured target",
+      "v1_status": "automatic_partial_or_private",
+      "v1_mapping": "Derivable only within full-hash coverage from metrics.duplicate_files, not full unique archive count",
+      "sharing": "Descriptions only. Identifiers, paths, raw text and sensitive references stay private by default."
+    },
+    {
+      "id": "dataset_total_bytes",
+      "level": "dataset",
+      "description": "Original filesystem bytes in the named inventory scope.",
+      "evidence_class": "measured target",
+      "v1_status": "automatic_scope_metadata",
+      "v1_mapping": "inventory.bytes; metrics.selected_bytes",
+      "sharing": "Descriptions only. Identifiers, paths, raw text and sensitive references stay private by default."
+    },
+    {
+      "id": "dataset_record_count",
+      "level": "dataset",
+      "description": "Record quantities by entity type and system under explicit parsing assumptions.",
+      "evidence_class": "measured target",
+      "v1_status": "external_not_implemented",
+      "v1_mapping": null,
+      "sharing": "Descriptions only. Identifiers, paths, raw text and sensitive references stay private by default."
+    },
+    {
+      "id": "dataset_token_count",
+      "level": "dataset",
+      "description": "Actual tokens counted with a named tokenizer over a specified extracted scope.",
+      "evidence_class": "measured target",
+      "v1_status": "external_not_implemented",
+      "v1_mapping": null,
+      "sharing": "Descriptions only. Identifiers, paths, raw text and sensitive references stay private by default."
+    },
+    {
+      "id": "dataset_tokenizer_id",
+      "level": "dataset",
+      "description": "Tokenizer version, revision and counting configuration.",
+      "evidence_class": "provider-declared",
+      "v1_status": "provider_context",
+      "v1_mapping": null,
+      "sharing": "Descriptions only. Identifiers, paths, raw text and sensitive references stay private by default."
+    },
+    {
+      "id": "dataset_modality_breakdown",
+      "level": "dataset",
+      "description": "Counts or bytes by modality, with overlaps and denominator defined.",
+      "evidence_class": "measured target",
+      "v1_status": "external_not_implemented",
+      "v1_mapping": null,
+      "sharing": "Descriptions only. Identifiers, paths, raw text and sensitive references stay private by default."
+    },
+    {
+      "id": "dataset_format_breakdown",
+      "level": "dataset",
+      "description": "Verified format distribution; filename extensions alone are not MIME verification.",
+      "evidence_class": "measured target",
+      "v1_status": "external_not_implemented",
+      "v1_mapping": null,
+      "sharing": "Descriptions only. Identifiers, paths, raw text and sensitive references stay private by default."
+    },
+    {
+      "id": "dataset_language_breakdown",
+      "level": "dataset",
+      "description": "Inferred language quantities with counting unit, unknowns and sample limits.",
+      "evidence_class": "inferred target",
+      "v1_status": "automatic_partial_or_private",
+      "v1_mapping": "languages; metrics.english_document_share (bounded inference only)",
+      "sharing": "Descriptions only. Identifiers, paths, raw text and sensitive references stay private by default."
+    },
+    {
+      "id": "dataset_time_coverage",
+      "level": "dataset",
+      "description": "Content-date coverage and gaps with an explicit date basis.",
+      "evidence_class": "measured target",
+      "v1_status": "external_not_implemented",
+      "v1_mapping": null,
+      "sharing": "Descriptions only. Identifiers, paths, raw text and sensitive references stay private by default."
+    },
+    {
+      "id": "dataset_sampling_plan",
+      "level": "dataset",
+      "description": "Sampling goal and selection rules defined before choosing examples.",
+      "evidence_class": "provider-declared",
+      "v1_status": "provider_context",
+      "v1_mapping": null,
+      "sharing": "Descriptions only. Identifiers, paths, raw text and sensitive references stay private by default."
+    },
+    {
+      "id": "system_id",
+      "level": "system",
+      "description": "Stable source-system identifier within the dataset.",
+      "evidence_class": "measured target",
+      "v1_status": "external_not_implemented",
+      "v1_mapping": null,
+      "sharing": "Descriptions only. Identifiers, paths, raw text and sensitive references stay private by default."
+    },
+    {
+      "id": "system_source_name",
+      "level": "system",
+      "description": "Declared originating system or corpus.",
+      "evidence_class": "provider-declared",
+      "v1_status": "provider_context",
+      "v1_mapping": null,
+      "sharing": "Descriptions only. Identifiers, paths, raw text and sensitive references stay private by default."
+    },
+    {
+      "id": "system_source_type",
+      "level": "system",
+      "description": "Declared type of source application or storage.",
+      "evidence_class": "provider-declared",
+      "v1_status": "provider_context",
+      "v1_mapping": null,
+      "sharing": "Descriptions only. Identifiers, paths, raw text and sensitive references stay private by default."
+    },
+    {
+      "id": "system_export_snapshot_id",
+      "level": "system",
+      "description": "Identifier for a consistent source export or snapshot.",
+      "evidence_class": "measured target",
+      "v1_status": "external_not_implemented",
+      "v1_mapping": null,
+      "sharing": "Descriptions only. Identifiers, paths, raw text and sensitive references stay private by default."
+    },
+    {
+      "id": "system_exported_at",
+      "level": "system",
+      "description": "Export time, separate from underlying business-event time.",
+      "evidence_class": "measured target",
+      "v1_status": "external_not_implemented",
+      "v1_mapping": null,
+      "sharing": "Descriptions only. Identifiers, paths, raw text and sensitive references stay private by default."
+    },
+    {
+      "id": "system_source_event_start",
+      "level": "system",
+      "description": "Earliest evidenced source event under a named date basis.",
+      "evidence_class": "measured target",
+      "v1_status": "external_not_implemented",
+      "v1_mapping": null,
+      "sharing": "Descriptions only. Identifiers, paths, raw text and sensitive references stay private by default."
+    },
+    {
+      "id": "system_source_event_end",
+      "level": "system",
+      "description": "Latest evidenced source event under a named date basis.",
+      "evidence_class": "measured target",
+      "v1_status": "external_not_implemented",
+      "v1_mapping": null,
+      "sharing": "Descriptions only. Identifiers, paths, raw text and sensitive references stay private by default."
+    },
+    {
+      "id": "system_date_basis",
+      "level": "system",
+      "description": "Meaning of the selected date field and its timezone.",
+      "evidence_class": "provider-declared",
+      "v1_status": "provider_context",
+      "v1_mapping": null,
+      "sharing": "Descriptions only. Identifiers, paths, raw text and sensitive references stay private by default."
+    },
+    {
+      "id": "system_retention_policy",
+      "level": "system",
+      "description": "Declared retention, deletion and backup rules.",
+      "evidence_class": "provider-declared",
+      "v1_status": "provider_context",
+      "v1_mapping": null,
+      "sharing": "Descriptions only. Identifiers, paths, raw text and sensitive references stay private by default."
+    },
+    {
+      "id": "system_history_completeness",
+      "level": "system",
+      "description": "Provider declaration of full, partial or unknown retained history.",
+      "evidence_class": "provider-declared",
+      "v1_status": "provider_context",
+      "v1_mapping": null,
+      "sharing": "Descriptions only. Identifiers, paths, raw text and sensitive references stay private by default."
+    },
+    {
+      "id": "system_available_entity_types",
+      "level": "system",
+      "description": "Declared exported entity types and known exclusions.",
+      "evidence_class": "provider-declared",
+      "v1_status": "provider_context",
+      "v1_mapping": null,
+      "sharing": "Descriptions only. Identifiers, paths, raw text and sensitive references stay private by default."
+    },
+    {
+      "id": "system_listed_object_count",
+      "level": "system",
+      "description": "Objects actually enumerated by system and entity type.",
+      "evidence_class": "measured target",
+      "v1_status": "external_not_implemented",
+      "v1_mapping": null,
+      "sharing": "Descriptions only. Identifiers, paths, raw text and sensitive references stay private by default."
+    },
+    {
+      "id": "system_acquired_object_count",
+      "level": "system",
+      "description": "Objects actually acquired by system and entity type.",
+      "evidence_class": "measured target",
+      "v1_status": "external_not_implemented",
+      "v1_mapping": null,
+      "sharing": "Descriptions only. Identifiers, paths, raw text and sensitive references stay private by default."
+    },
+    {
+      "id": "system_skipped_object_count",
+      "level": "system",
+      "description": "Objects intentionally skipped, grouped by reason.",
+      "evidence_class": "measured target",
+      "v1_status": "external_not_implemented",
+      "v1_mapping": null,
+      "sharing": "Descriptions only. Identifiers, paths, raw text and sensitive references stay private by default."
+    },
+    {
+      "id": "system_failed_object_count",
+      "level": "system",
+      "description": "Objects whose acquisition failed, grouped by reason.",
+      "evidence_class": "measured target",
+      "v1_status": "external_not_implemented",
+      "v1_mapping": null,
+      "sharing": "Descriptions only. Identifiers, paths, raw text and sensitive references stay private by default."
+    },
+    {
+      "id": "system_schema_summary",
+      "level": "system",
+      "description": "Schema description without confidential field values.",
+      "evidence_class": "measured target",
+      "v1_status": "external_not_implemented",
+      "v1_mapping": null,
+      "sharing": "Descriptions only. Identifiers, paths, raw text and sensitive references stay private by default."
+    },
+    {
+      "id": "document_id",
+      "level": "document",
+      "description": "Stable identifier for an original document within its source.",
+      "evidence_class": "measured target",
+      "v1_status": "external_not_implemented",
+      "v1_mapping": null,
+      "sharing": "Descriptions only. Identifiers, paths, raw text and sensitive references stay private by default."
+    },
+    {
+      "id": "document_representation_id",
+      "level": "document",
+      "description": "Identifier for a particular extracted or transformed representation.",
+      "evidence_class": "measured target",
+      "v1_status": "external_not_implemented",
+      "v1_mapping": null,
+      "sharing": "Descriptions only. Identifiers, paths, raw text and sensitive references stay private by default."
+    },
+    {
+      "id": "document_source_system_id",
+      "level": "document",
+      "description": "Reference to the originating source system.",
+      "evidence_class": "measured target",
+      "v1_status": "external_not_implemented",
+      "v1_mapping": null,
+      "sharing": "Descriptions only. Identifiers, paths, raw text and sensitive references stay private by default."
+    },
+    {
+      "id": "document_source_ref",
+      "level": "document",
+      "description": "Traceable original location or object ID; keep actual references private.",
+      "evidence_class": "measured target",
+      "v1_status": "external_not_implemented",
+      "v1_mapping": null,
+      "sharing": "Descriptions only. Identifiers, paths, raw text and sensitive references stay private by default."
+    },
+    {
+      "id": "document_container_ref",
+      "level": "document",
+      "description": "Reference to a source container such as an archive or mailbox.",
+      "evidence_class": "measured target",
+      "v1_status": "external_not_implemented",
+      "v1_mapping": null,
+      "sharing": "Descriptions only. Identifiers, paths, raw text and sensitive references stay private by default."
+    },
+    {
+      "id": "document_container_offset",
+      "level": "document",
+      "description": "Position within the source container with an explicit offset unit.",
+      "evidence_class": "measured target",
+      "v1_status": "external_not_implemented",
+      "v1_mapping": null,
+      "sharing": "Descriptions only. Identifiers, paths, raw text and sensitive references stay private by default."
+    },
+    {
+      "id": "document_content_sha256",
+      "level": "document",
+      "description": "Hash of complete original bytes for integrity and byte identity.",
+      "evidence_class": "measured target",
+      "v1_status": "automatic_partial_or_private",
+      "v1_mapping": "Private complete-file hashes within hashing limits",
+      "sharing": "Descriptions only. Identifiers, paths, raw text and sensitive references stay private by default."
+    },
+    {
+      "id": "document_mime_type",
+      "level": "document",
+      "description": "Verified actual type and any mismatch with the file extension.",
+      "evidence_class": "measured target",
+      "v1_status": "external_not_implemented",
+      "v1_mapping": null,
+      "sharing": "Descriptions only. Identifiers, paths, raw text and sensitive references stay private by default."
+    },
+    {
+      "id": "document_file_size",
+      "level": "document",
+      "description": "Size of the original object in bytes.",
+      "evidence_class": "measured target",
+      "v1_status": "automatic_partial_or_private",
+      "v1_mapping": "inventory.bytes (aggregate); private per-file bytes",
+      "sharing": "Descriptions only. Identifiers, paths, raw text and sensitive references stay private by default."
+    },
+    {
+      "id": "document_page_count",
+      "level": "document",
+      "description": "Known readable page count, separate from inspected pages and failures.",
+      "evidence_class": "measured target",
+      "v1_status": "automatic_partial_or_private",
+      "v1_mapping": "metrics.pdf_pages_processed / pdf_pages_known_total, sampled PDFs only",
+      "sharing": "Descriptions only. Identifiers, paths, raw text and sensitive references stay private by default."
+    },
+    {
+      "id": "document_text",
+      "level": "document",
+      "description": "Extracted text representation; never include body text in default shared aggregates.",
+      "evidence_class": "measured target",
+      "v1_status": "external_not_implemented",
+      "v1_mapping": null,
+      "sharing": "Descriptions only. Identifiers, paths, raw text and sensitive references stay private by default."
+    },
+    {
+      "id": "document_token_count",
+      "level": "document",
+      "description": "Actual token count under a specified tokenizer and extraction method.",
+      "evidence_class": "measured target",
+      "v1_status": "external_not_implemented",
+      "v1_mapping": null,
+      "sharing": "Descriptions only. Identifiers, paths, raw text and sensitive references stay private by default."
+    },
+    {
+      "id": "document_created_at",
+      "level": "document",
+      "description": "Evidenced original creation time; estimated dates remain inferred.",
+      "evidence_class": "measured target",
+      "v1_status": "external_not_implemented",
+      "v1_mapping": null,
+      "sharing": "Descriptions only. Identifiers, paths, raw text and sensitive references stay private by default."
+    },
+    {
+      "id": "document_modified_at",
+      "level": "document",
+      "description": "Filesystem modification time, which does not establish content history.",
+      "evidence_class": "measured target",
+      "v1_status": "automatic_partial_or_private",
+      "v1_mapping": "metrics.filesystem_mtime_bounds (aggregate only)",
+      "sharing": "Descriptions only. Identifiers, paths, raw text and sensitive references stay private by default."
+    },
+    {
+      "id": "document_ingested_at",
+      "level": "document",
+      "description": "Time at which this representation was acquired.",
+      "evidence_class": "measured target",
+      "v1_status": "external_not_implemented",
+      "v1_mapping": null,
+      "sharing": "Descriptions only. Identifiers, paths, raw text and sensitive references stay private by default."
+    },
+    {
+      "id": "document_source_observed_at",
+      "level": "document",
+      "description": "Time and type of source observation, such as a crawl or snapshot.",
+      "evidence_class": "measured target",
+      "v1_status": "external_not_implemented",
+      "v1_mapping": null,
+      "sharing": "Descriptions only. Identifiers, paths, raw text and sensitive references stay private by default."
+    },
+    {
+      "id": "document_type",
+      "level": "document",
+      "description": "Inferred business-document class under a named method.",
+      "evidence_class": "inferred target",
+      "v1_status": "external_not_implemented",
+      "v1_mapping": null,
+      "sharing": "Descriptions only. Identifiers, paths, raw text and sensitive references stay private by default."
+    },
+    {
+      "id": "document_language",
+      "level": "document",
+      "description": "Inferred dominant language; unknown is a valid result.",
+      "evidence_class": "inferred target",
+      "v1_status": "automatic_partial_or_private",
+      "v1_mapping": "Private sampled language label; only aggregate counts shared",
+      "sharing": "Descriptions only. Identifiers, paths, raw text and sensitive references stay private by default."
+    },
+    {
+      "id": "document_language_score",
+      "level": "document",
+      "description": "Model-specific language score, not calibrated universal confidence.",
+      "evidence_class": "inferred target",
+      "v1_status": "external_not_implemented",
+      "v1_mapping": null,
+      "sharing": "Descriptions only. Identifiers, paths, raw text and sensitive references stay private by default."
+    },
+    {
+      "id": "document_language_score_distribution",
+      "level": "document",
+      "description": "Candidate-language scores under a specified model.",
+      "evidence_class": "inferred target",
+      "v1_status": "external_not_implemented",
+      "v1_mapping": null,
+      "sharing": "Descriptions only. Identifiers, paths, raw text and sensitive references stay private by default."
+    },
+    {
+      "id": "document_per_page_languages",
+      "level": "document",
+      "description": "Page-level language classifications with unknown or mixed results.",
+      "evidence_class": "inferred target",
+      "v1_status": "external_not_implemented",
+      "v1_mapping": null,
+      "sharing": "Descriptions only. Identifiers, paths, raw text and sensitive references stay private by default."
+    },
+    {
+      "id": "document_page_average_lid",
+      "level": "document",
+      "description": "Language inferred by a documented aggregation across pages.",
+      "evidence_class": "inferred target",
+      "v1_status": "external_not_implemented",
+      "v1_mapping": null,
+      "sharing": "Descriptions only. Identifiers, paths, raw text and sensitive references stay private by default."
+    },
+    {
+      "id": "document_page_average_lid_score",
+      "level": "document",
+      "description": "Score for the page-aggregation language method.",
+      "evidence_class": "inferred target",
+      "v1_status": "external_not_implemented",
+      "v1_mapping": null,
+      "sharing": "Descriptions only. Identifiers, paths, raw text and sensitive references stay private by default."
+    },
+    {
+      "id": "document_full_doc_lid",
+      "level": "document",
+      "description": "Language inferred from a declared contiguous document-text sample.",
+      "evidence_class": "inferred target",
+      "v1_status": "external_not_implemented",
+      "v1_mapping": null,
+      "sharing": "Descriptions only. Identifiers, paths, raw text and sensitive references stay private by default."
+    },
+    {
+      "id": "document_full_doc_lid_score",
+      "level": "document",
+      "description": "Model-specific score for that contiguous language sample.",
+      "evidence_class": "inferred target",
+      "v1_status": "external_not_implemented",
+      "v1_mapping": null,
+      "sharing": "Descriptions only. Identifiers, paths, raw text and sensitive references stay private by default."
+    },
+    {
+      "id": "document_page_ends",
+      "level": "document",
+      "description": "Offsets linking extracted text segments to source pages.",
+      "evidence_class": "measured target",
+      "v1_status": "external_not_implemented",
+      "v1_mapping": null,
+      "sharing": "Descriptions only. Identifiers, paths, raw text and sensitive references stay private by default."
+    },
+    {
+      "id": "document_extraction_processor",
+      "level": "document",
+      "description": "Named parser or extraction tool and its version.",
+      "evidence_class": "measured target",
+      "v1_status": "external_not_implemented",
+      "v1_mapping": null,
+      "sharing": "Descriptions only. Identifiers, paths, raw text and sensitive references stay private by default."
+    },
+    {
+      "id": "document_extraction_status",
+      "level": "document",
+      "description": "Explicit successful, partial, protected, malformed or unsupported extraction state.",
+      "evidence_class": "measured target",
+      "v1_status": "automatic_partial_or_private",
+      "v1_mapping": "extraction.status_counts (aggregate); private per-file status",
+      "sharing": "Descriptions only. Identifiers, paths, raw text and sensitive references stay private by default."
+    },
+    {
+      "id": "document_truncation_status",
+      "level": "document",
+      "description": "Evidenced or suspected truncation with method and uncertainty.",
+      "evidence_class": "inferred target",
+      "v1_status": "external_not_implemented",
+      "v1_mapping": null,
+      "sharing": "Descriptions only. Identifiers, paths, raw text and sensitive references stay private by default."
+    },
+    {
+      "id": "document_quality_score",
+      "level": "document",
+      "description": "Model judgment for a specific quality dimension and scale.",
+      "evidence_class": "inferred target",
+      "v1_status": "external_not_implemented",
+      "v1_mapping": null,
+      "sharing": "Descriptions only. Identifiers, paths, raw text and sensitive references stay private by default."
+    },
+    {
+      "id": "document_quality_int_score",
+      "level": "document",
+      "description": "Discrete quality score with the rounding method stated.",
+      "evidence_class": "inferred target",
+      "v1_status": "external_not_implemented",
+      "v1_mapping": null,
+      "sharing": "Descriptions only. Identifiers, paths, raw text and sensitive references stay private by default."
+    },
+    {
+      "id": "document_quality_label",
+      "level": "document",
+      "description": "Named filter category, not a universal quality label.",
+      "evidence_class": "inferred target",
+      "v1_status": "external_not_implemented",
+      "v1_mapping": null,
+      "sharing": "Descriptions only. Identifiers, paths, raw text and sensitive references stay private by default."
+    },
+    {
+      "id": "document_original_word_count",
+      "level": "document",
+      "description": "Measured words before a named transformation or filter stage.",
+      "evidence_class": "measured target",
+      "v1_status": "external_not_implemented",
+      "v1_mapping": null,
+      "sharing": "Descriptions only. Identifiers, paths, raw text and sensitive references stay private by default."
+    },
+    {
+      "id": "document_duplicate_ngrams_count",
+      "level": "document",
+      "description": "Repeated n-grams under a specified comparison scope and method.",
+      "evidence_class": "measured target",
+      "v1_status": "external_not_implemented",
+      "v1_mapping": null,
+      "sharing": "Descriptions only. Identifiers, paths, raw text and sensitive references stay private by default."
+    },
+    {
+      "id": "document_filter_score",
+      "level": "document",
+      "description": "Score from a named and versioned content filter.",
+      "evidence_class": "inferred target",
+      "v1_status": "external_not_implemented",
+      "v1_mapping": null,
+      "sharing": "Descriptions only. Identifiers, paths, raw text and sensitive references stay private by default."
+    },
+    {
+      "id": "document_derived_attributes",
+      "level": "document",
+      "description": "Derived annotations kept separate from original content.",
+      "evidence_class": "inferred target",
+      "v1_status": "external_not_implemented",
+      "v1_mapping": null,
+      "sharing": "Descriptions only. Identifiers, paths, raw text and sensitive references stay private by default."
+    },
+    {
+      "id": "record_id",
+      "level": "record",
+      "description": "Stable record identifier within a table or entity source.",
+      "evidence_class": "measured target",
+      "v1_status": "external_not_implemented",
+      "v1_mapping": null,
+      "sharing": "Descriptions only. Identifiers, paths, raw text and sensitive references stay private by default."
+    },
+    {
+      "id": "record_entity_type",
+      "level": "record",
+      "description": "Provider-defined meaning of the counted entity.",
+      "evidence_class": "provider-declared",
+      "v1_status": "provider_context",
+      "v1_mapping": null,
+      "sharing": "Descriptions only. Identifiers, paths, raw text and sensitive references stay private by default."
+    },
+    {
+      "id": "record_source_table",
+      "level": "record",
+      "description": "Reference to the original table or export.",
+      "evidence_class": "measured target",
+      "v1_status": "external_not_implemented",
+      "v1_mapping": null,
+      "sharing": "Descriptions only. Identifiers, paths, raw text and sensitive references stay private by default."
+    },
+    {
+      "id": "record_primary_key_fields",
+      "level": "record",
+      "description": "Declared single or composite identity fields, without raw key values.",
+      "evidence_class": "provider-declared",
+      "v1_status": "provider_context",
+      "v1_mapping": null,
+      "sharing": "Descriptions only. Identifiers, paths, raw text and sensitive references stay private by default."
+    },
+    {
+      "id": "record_relationship_keys",
+      "level": "record",
+      "description": "Documented relationship fields, targets and cardinalities.",
+      "evidence_class": "provider-declared",
+      "v1_status": "provider_context",
+      "v1_mapping": null,
+      "sharing": "Descriptions only. Identifiers, paths, raw text and sensitive references stay private by default."
+    },
+    {
+      "id": "record_column_schema",
+      "level": "record",
+      "description": "Field names, types, meanings and units; no example personal data.",
+      "evidence_class": "measured target",
+      "v1_status": "external_not_implemented",
+      "v1_mapping": null,
+      "sharing": "Descriptions only. Identifiers, paths, raw text and sensitive references stay private by default."
+    },
+    {
+      "id": "record_row_count",
+      "level": "record",
+      "description": "Physical exported data rows under documented header and sampling rules.",
+      "evidence_class": "measured target",
+      "v1_status": "automatic_partial_or_private",
+      "v1_mapping": "metrics.rows_processed / rows_known_total, bounded sample and header assumption",
+      "sharing": "Descriptions only. Identifiers, paths, raw text and sensitive references stay private by default."
+    },
+    {
+      "id": "record_distinct_entity_count",
+      "level": "record",
+      "description": "Distinct entities under a confirmed key and named scope.",
+      "evidence_class": "measured target",
+      "v1_status": "external_not_implemented",
+      "v1_mapping": null,
+      "sharing": "Descriptions only. Identifiers, paths, raw text and sensitive references stay private by default."
+    },
+    {
+      "id": "record_null_rates",
+      "level": "record",
+      "description": "Missing-value counts with each column denominator and missingness definition.",
+      "evidence_class": "measured target",
+      "v1_status": "external_not_implemented",
+      "v1_mapping": null,
+      "sharing": "Descriptions only. Identifiers, paths, raw text and sensitive references stay private by default."
+    },
+    {
+      "id": "record_duplicate_key_count",
+      "level": "record",
+      "description": "Repeated keys, interpreted separately from valid version or event history.",
+      "evidence_class": "measured target",
+      "v1_status": "external_not_implemented",
+      "v1_mapping": null,
+      "sharing": "Descriptions only. Identifiers, paths, raw text and sensitive references stay private by default."
+    },
+    {
+      "id": "record_referential_integrity",
+      "level": "record",
+      "description": "Resolved references divided by references actually checked.",
+      "evidence_class": "measured target",
+      "v1_status": "external_not_implemented",
+      "v1_mapping": null,
+      "sharing": "Descriptions only. Identifiers, paths, raw text and sensitive references stay private by default."
+    },
+    {
+      "id": "record_temporal_fields",
+      "level": "record",
+      "description": "Mapping of source date fields to their business meaning and timezone.",
+      "evidence_class": "provider-declared",
+      "v1_status": "provider_context",
+      "v1_mapping": null,
+      "sharing": "Descriptions only. Identifiers, paths, raw text and sensitive references stay private by default."
+    },
+    {
+      "id": "record_attachment_refs",
+      "level": "record",
+      "description": "References to attached objects, kept private by default.",
+      "evidence_class": "measured target",
+      "v1_status": "external_not_implemented",
+      "v1_mapping": null,
+      "sharing": "Descriptions only. Identifiers, paths, raw text and sensitive references stay private by default."
+    },
+    {
+      "id": "record_lifecycle_status",
+      "level": "record",
+      "description": "Source lifecycle status with provider-confirmed business interpretation.",
+      "evidence_class": "provider-declared",
+      "v1_status": "provider_context",
+      "v1_mapping": null,
+      "sharing": "Descriptions only. Identifiers, paths, raw text and sensitive references stay private by default."
+    },
+    {
+      "id": "case_id",
+      "level": "case",
+      "description": "Business-case identifier, distinct from file or row identifiers.",
+      "evidence_class": "measured target",
+      "v1_status": "external_not_implemented",
+      "v1_mapping": null,
+      "sharing": "Descriptions only. Identifiers, paths, raw text and sensitive references stay private by default."
+    },
+    {
+      "id": "case_type",
+      "level": "case",
+      "description": "Provider-defined business workflow category.",
+      "evidence_class": "provider-declared",
+      "v1_status": "provider_context",
+      "v1_mapping": null,
+      "sharing": "Descriptions only. Identifiers, paths, raw text and sensitive references stay private by default."
+    },
+    {
+      "id": "case_objective",
+      "level": "case",
+      "description": "Evidenced original request or objective, not invented from the outcome.",
+      "evidence_class": "provider-declared",
+      "v1_status": "provider_context",
+      "v1_mapping": null,
+      "sharing": "Descriptions only. Identifiers, paths, raw text and sensitive references stay private by default."
+    },
+    {
+      "id": "case_ids_across_systems",
+      "level": "case",
+      "description": "Confirmed cross-system identifier mapping.",
+      "evidence_class": "measured target",
+      "v1_status": "external_not_implemented",
+      "v1_mapping": null,
+      "sharing": "Descriptions only. Identifiers, paths, raw text and sensitive references stay private by default."
+    },
+    {
+      "id": "case_document_refs",
+      "level": "case",
+      "description": "Confirmed documents and messages belonging to the case.",
+      "evidence_class": "measured target",
+      "v1_status": "external_not_implemented",
+      "v1_mapping": null,
+      "sharing": "Descriptions only. Identifiers, paths, raw text and sensitive references stay private by default."
+    },
+    {
+      "id": "case_event_sequence",
+      "level": "case",
+      "description": "Evidenced chronological events with date basis and source references.",
+      "evidence_class": "measured target",
+      "v1_status": "external_not_implemented",
+      "v1_mapping": null,
+      "sharing": "Descriptions only. Identifiers, paths, raw text and sensitive references stay private by default."
+    },
+    {
+      "id": "case_opened_at",
+      "level": "case",
+      "description": "Evidenced start of the business case.",
+      "evidence_class": "measured target",
+      "v1_status": "external_not_implemented",
+      "v1_mapping": null,
+      "sharing": "Descriptions only. Identifiers, paths, raw text and sensitive references stay private by default."
+    },
+    {
+      "id": "case_closed_at",
+      "level": "case",
+      "description": "Evidenced closure time, not the last filesystem modification.",
+      "evidence_class": "measured target",
+      "v1_status": "external_not_implemented",
+      "v1_mapping": null,
+      "sharing": "Descriptions only. Identifiers, paths, raw text and sensitive references stay private by default."
+    },
+    {
+      "id": "case_status",
+      "level": "case",
+      "description": "Confirmed business processing state.",
+      "evidence_class": "provider-declared",
+      "v1_status": "provider_context",
+      "v1_mapping": null,
+      "sharing": "Descriptions only. Identifiers, paths, raw text and sensitive references stay private by default."
+    },
+    {
+      "id": "case_outcome",
+      "level": "case",
+      "description": "Evidenced result, including unresolved or unsuccessful cases.",
+      "evidence_class": "provider-declared",
+      "v1_status": "provider_context",
+      "v1_mapping": null,
+      "sharing": "Descriptions only. Identifiers, paths, raw text and sensitive references stay private by default."
+    },
+    {
+      "id": "case_resolution_evidence",
+      "level": "case",
+      "description": "References that substantiate closure or outcome.",
+      "evidence_class": "measured target",
+      "v1_status": "external_not_implemented",
+      "v1_mapping": null,
+      "sharing": "Descriptions only. Identifiers, paths, raw text and sensitive references stay private by default."
+    },
+    {
+      "id": "case_linkage_method",
+      "level": "case",
+      "description": "Explicit key, manual confirmation or separately labeled heuristic linkage.",
+      "evidence_class": "provider-declared",
+      "v1_status": "provider_context",
+      "v1_mapping": null,
+      "sharing": "Descriptions only. Identifiers, paths, raw text and sensitive references stay private by default."
+    },
+    {
+      "id": "case_linkage_coverage",
+      "level": "case",
+      "description": "Linked cases or edges with a defined checked denominator.",
+      "evidence_class": "measured target",
+      "v1_status": "external_not_implemented",
+      "v1_mapping": null,
+      "sharing": "Descriptions only. Identifiers, paths, raw text and sensitive references stay private by default."
+    },
+    {
+      "id": "case_attachment_completeness",
+      "level": "case",
+      "description": "Resolved, missing and excluded referenced attachments.",
+      "evidence_class": "measured target",
+      "v1_status": "external_not_implemented",
+      "v1_mapping": null,
+      "sharing": "Descriptions only. Identifiers, paths, raw text and sensitive references stay private by default."
+    },
+    {
+      "id": "case_failure_recovery_types",
+      "level": "case",
+      "description": "Evidenced exception and recovery categories under a documented method.",
+      "evidence_class": "inferred target",
+      "v1_status": "external_not_implemented",
+      "v1_mapping": null,
+      "sharing": "Descriptions only. Identifiers, paths, raw text and sensitive references stay private by default."
+    },
+    {
+      "id": "task_id",
+      "level": "task",
+      "description": "Stable identifier for an evaluable task.",
+      "evidence_class": "measured target",
+      "v1_status": "external_not_implemented",
+      "v1_mapping": null,
+      "sharing": "Descriptions only. Identifiers, paths, raw text and sensitive references stay private by default."
+    },
+    {
+      "id": "task_source_case_id",
+      "level": "task",
+      "description": "Reference to the originating case or explicitly synthetic origin.",
+      "evidence_class": "provider-declared",
+      "v1_status": "provider_context",
+      "v1_mapping": null,
+      "sharing": "Descriptions only. Identifiers, paths, raw text and sensitive references stay private by default."
+    },
+    {
+      "id": "task_source_project",
+      "level": "task",
+      "description": "Reference to the task's source project or system context.",
+      "evidence_class": "measured target",
+      "v1_status": "external_not_implemented",
+      "v1_mapping": null,
+      "sharing": "Descriptions only. Identifiers, paths, raw text and sensitive references stay private by default."
+    },
+    {
+      "id": "task_created_at",
+      "level": "task",
+      "description": "Task-creation timestamp with its meaning defined.",
+      "evidence_class": "measured target",
+      "v1_status": "external_not_implemented",
+      "v1_mapping": null,
+      "sharing": "Descriptions only. Identifiers, paths, raw text and sensitive references stay private by default."
+    },
+    {
+      "id": "task_objective",
+      "level": "task",
+      "description": "Executable goal and evidenced problem statement.",
+      "evidence_class": "provider-declared",
+      "v1_status": "provider_context",
+      "v1_mapping": null,
+      "sharing": "Descriptions only. Identifiers, paths, raw text and sensitive references stay private by default."
+    },
+    {
+      "id": "task_related_apps",
+      "level": "task",
+      "description": "Required applications and known versions.",
+      "evidence_class": "provider-declared",
+      "v1_status": "provider_context",
+      "v1_mapping": null,
+      "sharing": "Descriptions only. Identifiers, paths, raw text and sensitive references stay private by default."
+    },
+    {
+      "id": "task_initial_state_ref",
+      "level": "task",
+      "description": "Exact starting-state reference, such as a commit or snapshot.",
+      "evidence_class": "measured target",
+      "v1_status": "external_not_implemented",
+      "v1_mapping": null,
+      "sharing": "Descriptions only. Identifiers, paths, raw text and sensitive references stay private by default."
+    },
+    {
+      "id": "task_environment_setup_ref",
+      "level": "task",
+      "description": "Versioned environment setup, distinct from the input state.",
+      "evidence_class": "provider-declared",
+      "v1_status": "provider_context",
+      "v1_mapping": null,
+      "sharing": "Descriptions only. Identifiers, paths, raw text and sensitive references stay private by default."
+    },
+    {
+      "id": "task_environment_image",
+      "level": "task",
+      "description": "Fixed container or VM image reference and digest.",
+      "evidence_class": "provider-declared",
+      "v1_status": "provider_context",
+      "v1_mapping": null,
+      "sharing": "Descriptions only. Identifiers, paths, raw text and sensitive references stay private by default."
+    },
+    {
+      "id": "task_setup_config",
+      "level": "task",
+      "description": "Documented reproducible environment initialization.",
+      "evidence_class": "provider-declared",
+      "v1_status": "provider_context",
+      "v1_mapping": null,
+      "sharing": "Descriptions only. Identifiers, paths, raw text and sensitive references stay private by default."
+    },
+    {
+      "id": "task_reference_solution",
+      "level": "task",
+      "description": "Evidenced reference answer or solution and provenance.",
+      "evidence_class": "provider-declared",
+      "v1_status": "provider_context",
+      "v1_mapping": null,
+      "sharing": "Descriptions only. Identifiers, paths, raw text and sensitive references stay private by default."
+    },
+    {
+      "id": "task_test_definition",
+      "level": "task",
+      "description": "Task tests or structured verification specification.",
+      "evidence_class": "provider-declared",
+      "v1_status": "provider_context",
+      "v1_mapping": null,
+      "sharing": "Descriptions only. Identifiers, paths, raw text and sensitive references stay private by default."
+    },
+    {
+      "id": "task_fail_to_pass",
+      "level": "task",
+      "description": "Criteria failing initially that a valid solution must satisfy.",
+      "evidence_class": "measured target",
+      "v1_status": "external_not_implemented",
+      "v1_mapping": null,
+      "sharing": "Descriptions only. Identifiers, paths, raw text and sensitive references stay private by default."
+    },
+    {
+      "id": "task_pass_to_pass",
+      "level": "task",
+      "description": "Existing satisfied criteria that must remain satisfied.",
+      "evidence_class": "measured target",
+      "v1_status": "external_not_implemented",
+      "v1_mapping": null,
+      "sharing": "Descriptions only. Identifiers, paths, raw text and sensitive references stay private by default."
+    },
+    {
+      "id": "task_evaluator_function",
+      "level": "task",
+      "description": "Named implemented verification function; availability must be checked separately.",
+      "evidence_class": "provider-declared",
+      "v1_status": "provider_context",
+      "v1_mapping": null,
+      "sharing": "Descriptions only. Identifiers, paths, raw text and sensitive references stay private by default."
+    },
+    {
+      "id": "task_result_spec",
+      "level": "task",
+      "description": "Required output format, location and fields.",
+      "evidence_class": "provider-declared",
+      "v1_status": "provider_context",
+      "v1_mapping": null,
+      "sharing": "Descriptions only. Identifiers, paths, raw text and sensitive references stay private by default."
+    },
+    {
+      "id": "task_expected_output",
+      "level": "task",
+      "description": "Evidenced reference output or accepted alternatives.",
+      "evidence_class": "provider-declared",
+      "v1_status": "provider_context",
+      "v1_mapping": null,
+      "sharing": "Descriptions only. Identifiers, paths, raw text and sensitive references stay private by default."
+    },
+    {
+      "id": "task_constraints",
+      "level": "task",
+      "description": "Business or technical conditions for valid solutions.",
+      "evidence_class": "provider-declared",
+      "v1_status": "provider_context",
+      "v1_mapping": null,
+      "sharing": "Descriptions only. Identifiers, paths, raw text and sensitive references stay private by default."
+    },
+    {
+      "id": "task_reward_style",
+      "level": "task",
+      "description": "Named evaluation approach, such as rules or model judgment.",
+      "evidence_class": "provider-declared",
+      "v1_status": "provider_context",
+      "v1_mapping": null,
+      "sharing": "Descriptions only. Identifiers, paths, raw text and sensitive references stay private by default."
+    },
+    {
+      "id": "task_difficulty",
+      "level": "task",
+      "description": "Sourced difficulty annotation, distinct from measured model performance.",
+      "evidence_class": "inferred target",
+      "v1_status": "external_not_implemented",
+      "v1_mapping": null,
+      "sharing": "Descriptions only. Identifiers, paths, raw text and sensitive references stay private by default."
+    },
+    {
+      "id": "task_total_rollouts",
+      "level": "task",
+      "description": "Actually executed attempts under a fixed model and setup.",
+      "evidence_class": "measured target",
+      "v1_status": "external_not_implemented",
+      "v1_mapping": null,
+      "sharing": "Descriptions only. Identifiers, paths, raw text and sensitive references stay private by default."
+    },
+    {
+      "id": "task_correct_rollouts",
+      "level": "task",
+      "description": "Attempts verified successful by the stated evaluator.",
+      "evidence_class": "measured target",
+      "v1_status": "external_not_implemented",
+      "v1_mapping": null,
+      "sharing": "Descriptions only. Identifiers, paths, raw text and sensitive references stay private by default."
+    },
+    {
+      "id": "task_passrate",
+      "level": "task",
+      "description": "Successful attempts divided by valid attempts, with uncertainty if justified.",
+      "evidence_class": "measured target",
+      "v1_status": "external_not_implemented",
+      "v1_mapping": null,
+      "sharing": "Descriptions only. Identifiers, paths, raw text and sensitive references stay private by default."
+    },
+    {
+      "id": "task_alternative_answers",
+      "level": "task",
+      "description": "Alternatives explicitly accepted by an expert or verifier.",
+      "evidence_class": "provider-declared",
+      "v1_status": "provider_context",
+      "v1_mapping": null,
+      "sharing": "Descriptions only. Identifiers, paths, raw text and sensitive references stay private by default."
+    },
+    {
+      "id": "task_kb_article_title",
+      "level": "task",
+      "description": "Knowledge-article reference; titles may be confidential.",
+      "evidence_class": "measured target",
+      "v1_status": "external_not_implemented",
+      "v1_mapping": null,
+      "sharing": "Descriptions only. Identifiers, paths, raw text and sensitive references stay private by default."
+    },
+    {
+      "id": "task_observed_action_trace_ref",
+      "level": "task",
+      "description": "Reference to actually recorded actions, never reconstructed hidden reasoning.",
+      "evidence_class": "measured target",
+      "v1_status": "external_not_implemented",
+      "v1_mapping": null,
+      "sharing": "Descriptions only. Identifiers, paths, raw text and sensitive references stay private by default."
+    },
+    {
+      "id": "task_run_outputs",
+      "level": "task",
+      "description": "Actual run-output references kept separate from reference answers.",
+      "evidence_class": "measured target",
+      "v1_status": "external_not_implemented",
+      "v1_mapping": null,
+      "sharing": "Descriptions only. Identifiers, paths, raw text and sensitive references stay private by default."
+    },
+    {
+      "id": "rights_terms_label",
+      "level": "governance",
+      "description": "Provider-declared terms that apply to the selected data; not proof of all underlying permissions.",
+      "evidence_class": "provider-declared",
+      "v1_status": "provider_context",
+      "v1_mapping": null,
+      "sharing": "Descriptions only. Identifiers, paths, raw text and sensitive references stay private by default."
+    },
+    {
+      "id": "rights_holder_declaration",
+      "level": "governance",
+      "description": "Declaration and evidence about who controls the selected rights.",
+      "evidence_class": "provider-declared",
+      "v1_status": "provider_context",
+      "v1_mapping": null,
+      "sharing": "Descriptions only. Identifiers, paths, raw text and sensitive references stay private by default."
+    },
+    {
+      "id": "rights_permitted_scope",
+      "level": "governance",
+      "description": "Declared permitted purposes and any limits on sharing the selected data.",
+      "evidence_class": "provider-declared",
+      "v1_status": "provider_context",
+      "v1_mapping": null,
+      "sharing": "Descriptions only. Identifiers, paths, raw text and sensitive references stay private by default."
+    },
+    {
+      "id": "rights_exclusions",
+      "level": "governance",
+      "description": "Excluded sources, third-party content and contractual restrictions.",
+      "evidence_class": "provider-declared",
+      "v1_status": "provider_context",
+      "v1_mapping": null,
+      "sharing": "Descriptions only. Identifiers, paths, raw text and sensitive references stay private by default."
+    },
+    {
+      "id": "privacy_data_categories",
+      "level": "governance",
+      "description": "Potential sensitive categories and detection coverage; no raw examples.",
+      "evidence_class": "inferred target",
+      "v1_status": "external_not_implemented",
+      "v1_mapping": null,
+      "sharing": "Descriptions only. Identifiers, paths, raw text and sensitive references stay private by default."
+    },
+    {
+      "id": "privacy_anonymization_state",
+      "level": "governance",
+      "description": "Provider-declared raw, pseudonymized, reviewed or unknown processing state.",
+      "evidence_class": "provider-declared",
+      "v1_status": "provider_context",
+      "v1_mapping": null,
+      "sharing": "Descriptions only. Identifiers, paths, raw text and sensitive references stay private by default."
+    },
+    {
+      "id": "privacy_anonymization_method",
+      "level": "governance",
+      "description": "Actual privacy transformations and their known limitations.",
+      "evidence_class": "provider-declared",
+      "v1_status": "provider_context",
+      "v1_mapping": null,
+      "sharing": "Descriptions only. Identifiers, paths, raw text and sensitive references stay private by default."
+    },
+    {
+      "id": "transformation_origin",
+      "level": "governance",
+      "description": "Declared authentic, synthetic, rewritten, translated or mixed provenance.",
+      "evidence_class": "provider-declared",
+      "v1_status": "provider_context",
+      "v1_mapping": null,
+      "sharing": "Descriptions only. Identifiers, paths, raw text and sensitive references stay private by default."
+    },
+    {
+      "id": "transformation_models",
+      "level": "governance",
+      "description": "Models and versions used for generation or translation.",
+      "evidence_class": "provider-declared",
+      "v1_status": "provider_context",
+      "v1_mapping": null,
+      "sharing": "Descriptions only. Identifiers, paths, raw text and sensitive references stay private by default."
+    },
+    {
+      "id": "transformation_prompt",
+      "level": "governance",
+      "description": "Versioned transformation prompt reference; sensitive contents remain private.",
+      "evidence_class": "provider-declared",
+      "v1_status": "provider_context",
+      "v1_mapping": null,
+      "sharing": "Descriptions only. Identifiers, paths, raw text and sensitive references stay private by default."
+    },
+    {
+      "id": "translation_source_language",
+      "level": "governance",
+      "description": "Original language before a documented translation.",
+      "evidence_class": "provider-declared",
+      "v1_status": "provider_context",
+      "v1_mapping": null,
+      "sharing": "Descriptions only. Identifiers, paths, raw text and sensitive references stay private by default."
+    },
+    {
+      "id": "provenance_chain",
+      "level": "governance",
+      "description": "References connecting originals, extraction and subsequent transformations.",
+      "evidence_class": "measured target",
+      "v1_status": "external_not_implemented",
+      "v1_mapping": null,
+      "sharing": "Descriptions only. Identifiers, paths, raw text and sensitive references stay private by default."
+    },
+    {
+      "id": "measurement_run_id",
+      "level": "governance",
+      "description": "Identifier linking a measurement run to its outputs.",
+      "evidence_class": "measured target",
+      "v1_status": "external_not_implemented",
+      "v1_mapping": null,
+      "sharing": "Descriptions only. Identifiers, paths, raw text and sensitive references stay private by default."
+    },
+    {
+      "id": "measurement_method_version",
+      "level": "governance",
+      "description": "Version, parameters and limits of each measurement or inference.",
+      "evidence_class": "provider-declared",
+      "v1_status": "provider_context",
+      "v1_mapping": null,
+      "sharing": "Descriptions only. Identifiers, paths, raw text and sensitive references stay private by default."
+    },
+    {
+      "id": "measurement_scope",
+      "level": "governance",
+      "description": "Actually examined population and file, page, row or text limits per metric.",
+      "evidence_class": "measured target",
+      "v1_status": "automatic_scope_metadata",
+      "v1_mapping": "scope.limits and each metric.coverage",
+      "sharing": "Descriptions only. Identifiers, paths, raw text and sensitive references stay private by default."
+    },
+    {
+      "id": "sample_selection_method",
+      "level": "governance",
+      "description": "Full inventory, stratified, random or manual selection rules.",
+      "evidence_class": "provider-declared",
+      "v1_status": "automatic_scope_metadata",
+      "v1_mapping": "scope.selection_method",
+      "sharing": "Descriptions only. Identifiers, paths, raw text and sensitive references stay private by default."
+    },
+    {
+      "id": "sample_size",
+      "level": "governance",
+      "description": "Actually examined independent units, distinct from sample storage size.",
+      "evidence_class": "measured target",
+      "v1_status": "automatic_scope_metadata",
+      "v1_mapping": "extraction.attempted; languages.denominator",
+      "sharing": "Descriptions only. Identifiers, paths, raw text and sensitive references stay private by default."
+    },
+    {
+      "id": "sampling_uncertainty",
+      "level": "governance",
+      "description": "Justified intervals, coverage limits or nonquantifiable selection bias.",
+      "evidence_class": "inferred target",
+      "v1_status": "external_not_implemented",
+      "v1_mapping": null,
+      "sharing": "Descriptions only. Identifiers, paths, raw text and sensitive references stay private by default."
+    },
+    {
+      "id": "missingness_reasons",
+      "level": "governance",
+      "description": "Explicit absent, not exported, unreadable, protected, unsupported or unexamined states.",
+      "evidence_class": "measured target",
+      "v1_status": "automatic_scope_metadata",
+      "v1_mapping": "extraction.status_counts; languages.unknown_reasons",
+      "sharing": "Descriptions only. Identifiers, paths, raw text and sensitive references stay private by default."
+    },
+    {
+      "id": "provider_confirmations",
+      "level": "governance",
+      "description": "Explicit dated provider assertions and evidence references; unanswered stays unknown.",
+      "evidence_class": "provider-declared",
+      "v1_status": "provider_context",
+      "v1_mapping": null,
+      "sharing": "Descriptions only. Identifiers, paths, raw text and sensitive references stay private by default."
+    }
+  ]
+}

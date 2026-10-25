@@ -1,0 +1,418 @@
+{
+  "schema_version": "1.0",
+  "generated_at": "2026-10-03T00:48:39.080737+00:00",
+  "scope": {
+    "kind": "selected_files",
+    "selected_root_count": 1,
+    "enumeration_complete": true,
+    "limits": {
+      "max_files": 100000,
+      "max_sample_files": 1000,
+      "max_file_bytes": 52428800,
+      "max_pages": 50,
+      "max_rows": 10000,
+      "max_characters": 200000,
+      "parser_seconds": 15.0,
+      "max_expanded_bytes": 209715200,
+      "max_cells": 200000,
+      "max_json_nodes": 200000,
+      "max_hash_bytes": 1073741824
+    },
+    "selection_method": "deterministic extension-stratified round-robin quotas; evenly spaced paths per extension",
+    "hidden_and_credentials_excluded": true,
+    "symlinks_followed": false
+  },
+  "inventory": {
+    "files": 16,
+    "bytes": 8693,
+    "by_extension": {
+      "csv": {
+        "files": 2,
+        "bytes": 64
+      },
+      "docx": {
+        "files": 1,
+        "bytes": 356
+      },
+      "dwg": {
+        "files": 1,
+        "bytes": 21
+      },
+      "eml": {
+        "files": 1,
+        "bytes": 323
+      },
+      "json": {
+        "files": 3,
+        "bytes": 71
+      },
+      "jsonl": {
+        "files": 1,
+        "bytes": 18
+      },
+      "pdf": {
+        "files": 3,
+        "bytes": 2579
+      },
+      "txt": {
+        "files": 3,
+        "bytes": 390
+      },
+      "xlsx": {
+        "files": 1,
+        "bytes": 4871
+      }
+    }
+  },
+  "extraction": {
+    "attempted": 15,
+    "succeeded": 13,
+    "errors": 1,
+    "skipped": 3,
+    "skipped_basis": "encountered inventory files and excluded filesystem entries; unvisited subtree file counts unknown",
+    "status_counts": {
+      "empty": 1,
+      "excluded": 1,
+      "malformed": 1,
+      "ok": 13,
+      "unsupported": 1
+    }
+  },
+  "metrics": {
+    "selected_files": {
+      "value": 16,
+      "unit": "files",
+      "basis": "measured",
+      "denominator": 16,
+      "method": "regular non-hidden non-credential files enumerated in selected roots",
+      "coverage": {
+        "inventory_files": 16,
+        "enumeration_complete": true
+      }
+    },
+    "documents_processed": {
+      "value": 13,
+      "unit": "documents",
+      "basis": "measured",
+      "denominator": 15,
+      "method": "successfully extracted sampled files, including tables; not case counts",
+      "coverage": {
+        "inventory_files": 16,
+        "enumeration_complete": true,
+        "sampled_files": 15,
+        "successful_files": 13,
+        "selection": "deterministic extension-stratified round-robin quotas; evenly spaced paths per extension"
+      }
+    },
+    "files_with_extracted_text": {
+      "value": 11,
+      "unit": "files",
+      "basis": "measured",
+      "denominator": 15,
+      "method": "successfully parsed sampled files with non-whitespace text in retained extraction sample; not a readability or content quality judgment",
+      "coverage": {
+        "inventory_files": 16,
+        "enumeration_complete": true,
+        "sampled_files": 15,
+        "successful_files": 13,
+        "selection": "deterministic extension-stratified round-robin quotas; evenly spaced paths per extension",
+        "complete_text_files": 13,
+        "text_character_limit_per_document": 200000
+      }
+    },
+    "selected_bytes": {
+      "value": 8693,
+      "unit": "bytes",
+      "basis": "measured",
+      "denominator": 16,
+      "method": "filesystem file sizes",
+      "coverage": {
+        "inventory_files": 16,
+        "enumeration_complete": true
+      }
+    },
+    "format_file_shares": {
+      "value": {
+        "csv": 0.125,
+        "docx": 0.0625,
+        "dwg": 0.0625,
+        "eml": 0.0625,
+        "json": 0.1875,
+        "jsonl": 0.0625,
+        "pdf": 0.1875,
+        "txt": 0.1875,
+        "xlsx": 0.0625
+      },
+      "unit": "fraction",
+      "basis": "measured",
+      "denominator": 16,
+      "method": "file count by normalized extension divided by enumerated file count",
+      "coverage": {
+        "inventory_files": 16,
+        "enumeration_complete": true
+      }
+    },
+    "duplicate_files": {
+      "value": 1,
+      "unit": "files",
+      "basis": "measured",
+      "denominator": 16,
+      "method": "exact full-byte SHA-256 duplicates; extra copies beyond one per hash",
+      "coverage": {
+        "inventory_files": 16,
+        "enumeration_complete": true,
+        "hashed_files": 16,
+        "hashed_bytes": 8693,
+        "max_hash_bytes": 1073741824
+      }
+    },
+    "rows_processed": {
+      "value": 12,
+      "unit": "records",
+      "basis": "measured",
+      "denominator": 7,
+      "method": "CSV/XLSX data rows exclude first non-empty header; JSON object=1, array elements, JSONL nonblank lines; processed sample only",
+      "coverage": {
+        "inventory_files": 16,
+        "enumeration_complete": true,
+        "sampled_files": 15,
+        "successful_files": 13,
+        "selection": "deterministic extension-stratified round-robin quotas; evenly spaced paths per extension",
+        "record_files": 7,
+        "files_with_known_total": 7
+      }
+    },
+    "rows_known_total": {
+      "value": 12,
+      "unit": "records",
+      "basis": "measured",
+      "denominator": 7,
+      "method": "sum of known row totals only; never a full selected archive count",
+      "coverage": {
+        "inventory_files": 16,
+        "enumeration_complete": true,
+        "sampled_files": 15,
+        "successful_files": 13,
+        "selection": "deterministic extension-stratified round-robin quotas; evenly spaced paths per extension",
+        "record_files": 7,
+        "files_with_known_total": 7
+      }
+    },
+    "pdf_pages_processed": {
+      "value": 3,
+      "unit": "pages",
+      "basis": "measured",
+      "denominator": 2,
+      "method": "pages inspected in sampled successfully parsed PDFs",
+      "coverage": {
+        "inventory_files": 16,
+        "enumeration_complete": true,
+        "sampled_files": 15,
+        "successful_files": 13,
+        "selection": "deterministic extension-stratified round-robin quotas; evenly spaced paths per extension",
+        "pdf_files": 2,
+        "files_with_known_total": 2
+      }
+    },
+    "pdf_pages_known_total": {
+      "value": 3,
+      "unit": "pages",
+      "basis": "measured",
+      "denominator": 2,
+      "method": "PDF page-tree totals from successfully parsed sample, distinct from processed pages",
+      "coverage": {
+        "inventory_files": 16,
+        "enumeration_complete": true,
+        "sampled_files": 15,
+        "successful_files": 13,
+        "selection": "deterministic extension-stratified round-robin quotas; evenly spaced paths per extension",
+        "pdf_files": 2,
+        "files_with_known_total": 2
+      }
+    },
+    "pdf_no_text_pages": {
+      "value": 1,
+      "unit": "pages",
+      "basis": "measured",
+      "denominator": 3,
+      "method": "processed PDF pages yielding no extractable text; OCR candidate only, does not prove scan",
+      "coverage": {
+        "inventory_files": 16,
+        "enumeration_complete": true,
+        "sampled_files": 15,
+        "successful_files": 13,
+        "selection": "deterministic extension-stratified round-robin quotas; evenly spaced paths per extension",
+        "pdf_files": 2,
+        "files_with_known_total": 2
+      }
+    },
+    "extracted_characters": {
+      "value": 1193,
+      "unit": "characters",
+      "basis": "measured",
+      "denominator": 13,
+      "method": "Unicode characters in bounded extracted text samples; includes separators",
+      "coverage": {
+        "inventory_files": 16,
+        "enumeration_complete": true,
+        "sampled_files": 15,
+        "successful_files": 13,
+        "selection": "deterministic extension-stratified round-robin quotas; evenly spaced paths per extension",
+        "complete_text_files": 13,
+        "text_character_limit_per_document": 200000
+      }
+    },
+    "extracted_words": {
+      "value": 171,
+      "unit": "words",
+      "basis": "measured",
+      "denominator": 13,
+      "method": "Unicode word-regex matches in extracted text samples; not tokens",
+      "coverage": {
+        "inventory_files": 16,
+        "enumeration_complete": true,
+        "sampled_files": 15,
+        "successful_files": 13,
+        "selection": "deterministic extension-stratified round-robin quotas; evenly spaced paths per extension",
+        "complete_text_files": 13,
+        "text_character_limit_per_document": 200000
+      }
+    },
+    "filesystem_mtime_bounds": {
+      "value": {
+        "earliest": "2019-01-01T12:00:00+00:00",
+        "latest": "2019-01-01T12:00:00+00:00"
+      },
+      "unit": "UTC datetime bounds",
+      "basis": "measured",
+      "denominator": 16,
+      "method": "filesystem last-modified timestamps; not content creation or history",
+      "coverage": {
+        "inventory_files": 16,
+        "enumeration_complete": true
+      }
+    },
+    "eml_content_date_bounds": {
+      "value": {
+        "earliest": "2019-01-01T12:00:00+00:00",
+        "latest": "2019-01-01T12:00:00+00:00"
+      },
+      "unit": "UTC datetime bounds",
+      "basis": "measured",
+      "denominator": 1,
+      "method": "parseable timezone-aware Date headers in sampled EML files; header assertions, not verified event dates",
+      "coverage": {
+        "inventory_files": 16,
+        "enumeration_complete": true,
+        "sampled_files": 15,
+        "successful_files": 13,
+        "selection": "deterministic extension-stratified round-robin quotas; evenly spaced paths per extension"
+      }
+    },
+    "english_document_share": {
+      "value": 0.26666666666666666,
+      "unit": "fraction",
+      "basis": "inferred",
+      "denominator": 15,
+      "method": "py3langid 0.4.0; normalized model score >=0.90; >=80 alphabetic characters and >=12 words; first10000 sampled text characters; dominant document language inference (score is not calibrated probability); classified-English fraction of attempted sample, including unknown and failed files in denominator; null when all languages unknown; classification may be incorrect; no population or true-language bound estimate",
+      "coverage": {
+        "inventory_files": 16,
+        "enumeration_complete": true,
+        "sampled_files": 15,
+        "successful_files": 13,
+        "selection": "deterministic extension-stratified round-robin quotas; evenly spaced paths per extension",
+        "unknown_documents": 10
+      }
+    }
+  },
+  "languages": {
+    "document_counts": {
+      "de": 1,
+      "en": 4,
+      "unknown": 10
+    },
+    "denominator": 15,
+    "unknown_documents": 10,
+    "method": "py3langid 0.4.0; normalized model score >=0.90; >=80 alphabetic characters and >=12 words; first10000 sampled text characters; dominant document language inference (score is not calibrated probability)",
+    "basis": "inferred",
+    "coverage": {
+      "inventory_files": 16,
+      "enumeration_complete": true,
+      "sampled_files": 15,
+      "successful_files": 13,
+      "selection": "deterministic extension-stratified round-robin quotas; evenly spaced paths per extension"
+    },
+    "unknown_reasons": {
+      "insufficient_text": 10
+    }
+  },
+  "limitations": [
+    "Only explicitly selected local roots are profiled; archive completeness, rights and provider context require answers.",
+    "Skipped counts include encountered excluded filesystem entries; hidden subtrees are not traversed and their file counts are unknown. Credential exclusions use known filename patterns, not a complete secret or privacy audit.",
+    "No networking, OCR, native CAD or legacy Office extraction; unsupported files remain inventory only.",
+    "Known format extensions are counted separately; arbitrary or absent filename suffixes are grouped as other in shared inventory to avoid disclosing identifiers. Exact suffixes remain private.",
+    "Text is a bounded sample. Words and characters are measured; tokens, cases and workflow completion are not inferred.",
+    "Language is a model inference on document text samples; normalized model scores are not statistical confidence, mixed-language proportions or full-archive estimates.",
+    "CSV/XLSX first non-empty rows are treated as headers. Worksheet dimensions are declared metadata, not populated row totals; XLSX formulas use cached values only.",
+    "DOCX extraction covers the main document only; headers, footers, comments, images and embedded objects are not extracted.",
+    "EML extracts one preferred body, excludes attachments, and hashes message references privately; references do not establish complete cases.",
+    "Parser deadlines start after source reading; ordinary filesystem/storage operations have no wall-clock read deadline. Non-regular replacements are opened without blocking and rejected.",
+    "This local scanner does not anonymize content or guarantee offline isolation of the host model or application."
+  ],
+  "questions": [
+    {
+      "id": "rights",
+      "prompt": "What rights and permissions allow you to share this selected data with The General Data Company?",
+      "reason": "Rights are provider-declared; local files cannot establish permission.",
+      "priority": "required"
+    },
+    {
+      "id": "archive_scope",
+      "prompt": "How does this selected scope relate to your full archive, and which parts are excluded?",
+      "reason": "Selected roots do not prove archive completeness.",
+      "priority": "required"
+    },
+    {
+      "id": "provider_context",
+      "prompt": "What industry, business function and organization produced this data?",
+      "reason": "Business context needs an explicit provider statement.",
+      "priority": "required"
+    },
+    {
+      "id": "history",
+      "prompt": "What period does the content cover, and how much historical data is retained?",
+      "reason": "Filesystem modification times are not content dates.",
+      "priority": "high"
+    },
+    {
+      "id": "systems",
+      "prompt": "Which source systems and export processes produced these files?",
+      "reason": "File formats do not establish the source systems.",
+      "priority": "high"
+    },
+    {
+      "id": "case_mapping",
+      "prompt": "How should records, messages and documents be linked to real cases or workflows?",
+      "reason": "Rows and files are not cases; joins require an explicit mapping.",
+      "priority": "high"
+    },
+    {
+      "id": "workflow_outcomes",
+      "prompt": "Which stages, decisions and verified outcomes are recorded for each workflow?",
+      "reason": "Textual status values cannot prove workflow completion.",
+      "priority": "high"
+    },
+    {
+      "id": "refresh",
+      "prompt": "How frequently is this data updated, and can new exports be provided?",
+      "reason": "Local inventory cannot establish future availability.",
+      "priority": "normal"
+    },
+    {
+      "id": "privacy",
+      "prompt": "What personal or confidential information is present, and which anonymization rules are required?",
+      "reason": "Profiling is not a privacy audit or anonymization.",
+      "priority": "required"
+    }
+  ]
+}

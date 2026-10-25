@@ -1,0 +1,11 @@
+{
+  "rights": "Synthetic demonstration only. No real enterprise records or third-party rights are represented.",
+  "archive_scope": "A small synthetic selected scope for demonstrating the Data Card, with no claim of a complete archive.",
+  "provider_context": "Synthetic examples of generic customer service records and documents, without a real company identity.",
+  "history": "Synthetic timestamps and one example EML Date header are set to 2019-01-01. They do not represent business history.",
+  "systems": "Synthetic files generated for tests; no real source systems are asserted.",
+  "case_mapping": "",
+  "workflow_outcomes": "",
+  "refresh": "No refresh schedule; synthetic fixture only.",
+  "privacy": "Synthetic data only. A real dataset would require a separate confidentiality and anonymization review."
+}
