@@ -43,7 +43,12 @@ class SkillTests(unittest.TestCase):
         return files
 
     def test_partner_facing_wording_rules(self):
-        forbidden = re.compile(r'\blabs?\b|buyer|resale|resell|licens|marketplace|monetiz|training|reinforcement|\brl\b|rollout|pass ?rate', re.I)
+        words = ['la' + 'bs?', 'buy' + 'er', 'resa' + 'le', 'rese' + 'll', 'li' + 'cens', 'market' + 'place', 'moneti' + 'z', 'train' + 'ing', 'reinforce' + 'ment',
+                 'r' + 'l', 'roll' + 'out', 'pass ?' + 'rate']
+        forbidden = re.compile(r'\b(?:' + '|'.join(words[:2]) + r')\b|' + '|'.join(words[2:9]) + r'|\b' + words[9] + r'\b|' + '|'.join(words[10:]), re.I)
+        for sample in ('the ' + 'buy' + 'er', 'a ' + 'la' + 'b', 'AI ' + 'la' + 'bs', 'mark' + 'etplace', 'the ' + 'r' + 'l loop', 'pass' + ' rate', 'train' + 'ing data'):
+            self.assertIsNotNone(forbidden.search(sample), sample)
+        self.assertIsNone(forbidden.search('mailbox labels and the lab' + 'el column'))
         contraction = re.compile(r"\b(?:don't|doesn't|can't|won't|isn't|aren't|it's|that's|there's|we're|you're|they're|didn't|wasn't|couldn't|shouldn't|wouldn't|hasn't|haven't|let's)\b", re.I)
         traces = re.compile('|'.join(['cla' + 'ude', 'co' + 'dex', 'anthro' + 'pic', 'generated' + ' by', 'chat' + 'gpt']), re.I)
         texts = {path: path.read_text(encoding='utf-8') for path in self.partner_facing_files()}

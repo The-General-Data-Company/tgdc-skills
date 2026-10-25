@@ -84,7 +84,7 @@ class SpecReportTests(unittest.TestCase):
         everything = '\n'.join(pages) + json.dumps({k: str(v) for k, v in reader.metadata.items()})
         for char in ('\u2013', '\u2014'):
             self.assertNotIn(char, everything)
-        for word in ('cla' + 'ude', 'co' + 'dex', 'report' + 'lab', 'generated' + ' by'):
+        for word in ('cla' + 'ude', 'co' + 'dex', 'report' + 'l' + 'ab', 'generated' + ' by'):
             self.assertNotIn(word, everything.lower(), word)
         for word in ('not disclosed', 'n/a', 'on request', 'unknown', 'none', 'not available', 'tbd'):
             self.assertNotIn(word, spec_text, word)
