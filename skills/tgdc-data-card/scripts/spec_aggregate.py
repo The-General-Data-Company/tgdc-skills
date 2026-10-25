@@ -20,8 +20,22 @@ OVERLAP = 0.95
 MIN_YEAR = 1990
 DEDICATED_SHARE = 0.8
 MIN_LANGUAGE_FILES = 5
-DRAWING_DEFAULTS = ['drawing', 'drawings', 'blueprint', 'blueprints', 'floor plan', 'site plan']
-SCHEMATIC_DEFAULTS = ['schematic', 'schematics', 'wiring diagram', 'circuit diagram', 'single line diagram']
+# Name keywords used when the partner gives none, folded the way names are matched (no diacritics). A partner list replaces them.
+DRAWING_DEFAULTS = [
+    'drawing', 'drawings', 'blueprint', 'blueprints', 'floor plan', 'site plan',                                        # English
+    'plan', 'plansa', 'planse', 'plan de situatie', 'sectiune', 'sectiuni', 'detaliu', 'fatada', 'fatade', 'releveu',  # Romanian
+    'schita', 'schite', 'desen',
+    'zeichnung', 'schnitt', 'ansicht', 'grundriss', 'detail', 'lageplan',                                               # German
+    'plans', 'coupe', 'facade', 'dessin',                                                                               # French
+    'tavola', 'tavole', 'sezione', 'sezioni', 'prospetto', 'prospetti', 'pianta', 'disegno', 'disegni',                 # Italian
+    'plano', 'seccion', 'alzado', 'dibujo',                                                                             # Spanish
+    'rysunek', 'rysunki', 'przekroj', 'rzut', 'rzuty', 'elewacja', 'elewacje',                                          # Polish
+    'tekening', 'doorsnede', 'plattegrond', 'gevel', 'aanzicht',                                                        # Dutch
+]
+SCHEMATIC_DEFAULTS = [
+    'schematic', 'schematics', 'wiring diagram', 'circuit diagram', 'single line diagram',                              # English
+    'schema', 'schema electrica', 'esquema', 'schaltplan', 'stromlaufplan', 'schaltbild',                               # other languages
+]
 SIZE_LABEL = {'A4': 'A4', 'A3': 'A3', 'A2': 'A2', 'A1': 'A1', 'A0': 'A0', 'letter': T.US_LABEL, 'legal': T.US_LABEL,
               'tabloid': T.US_LABEL, 'oversize': T.OTHER_SIZE, 'other': T.OTHER_SIZE, 'image': T.IMAGE_SIZE}
 AUTO_DRAWING = frozenset(['A3', 'A2', 'A1', 'A0', 'tabloid', 'oversize'])
