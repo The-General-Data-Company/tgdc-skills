@@ -15,6 +15,7 @@ MAX_CHUNKS = 16
 SCORE_THRESHOLD = 0.90
 STOPWORD_RATIO = 0.10
 MIN_STOPWORD_HITS = 4
+MIN_LETTERS = 40          # least letters of any script; most scripts need 80
 
 _RAW = {
     'en': 'the of and to in is that for it as with was on be by at this have from or an are not but they you which we all can has had were their will would there been one if more when who what so no out up about into than them could other these its also such do my your our',
@@ -111,21 +112,34 @@ def confirmed(code, text):
     return ratio >= STOPWORD_RATIO and len(set(hits)) >= MIN_STOPWORD_HITS
 
 
-def classify(text, minimum=True):
-    """Confirmed language code for a text sample, or None."""
+def assess(text, minimum=True):
+    """(confirmed language code or None, reason). The one place where the language rule lives.
+
+    The reason is one of confirmed, insufficient_text, low_model_score, language_not_confirmed,
+    dependency_missing and detector_error."""
     sample = text[:SAMPLE_CHARS]
     if not sample.strip():
-        return None
+        return None, 'insufficient_text'
+    if minimum and sum(char.isalpha() for char in sample) < MIN_LETTERS:
+        return None, 'insufficient_text'      # also spares the model load for tiny files
     try:
         code, score = _load_identifier().classify(sample)
+    except ImportError:
+        return None, 'dependency_missing'
     except Exception:
-        return None
-    script = SCRIPT_OF_LANGUAGE.get(code)
+        return None, 'detector_error'
+    if minimum and not _enough_text(sample, SCRIPT_OF_LANGUAGE.get(code)):
+        return None, 'insufficient_text'
     if code in ('und', 'zxx') or float(score) < SCORE_THRESHOLD:
-        return None
-    if minimum and not _enough_text(sample, script):
-        return None
-    return str(code) if confirmed(code, sample) else None
+        return None, 'low_model_score'
+    if not confirmed(code, sample):
+        return None, 'language_not_confirmed'
+    return str(code), 'confirmed'
+
+
+def classify(text, minimum=True):
+    """Confirmed language code for a text sample, or None."""
+    return assess(text, minimum)[0]
 
 
 def chunk_counts(text, limit=40000):

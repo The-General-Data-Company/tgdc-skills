@@ -38,6 +38,13 @@ class LanguageTests(unittest.TestCase):
         self.assertIsNone(L.classify('xq zv kk jj hh gg ff dd ss aa ' * 20))
         self.assertIsNone(L.classify('1234 5678 9012 3456 ' * 40))
 
+    def test_assess_gives_the_reason_a_text_has_no_language(self):
+        self.assertEqual(L.assess(EN * 2), ('en', 'confirmed'))
+        self.assertEqual(L.assess('ok'), (None, 'insufficient_text'))
+        self.assertEqual(L.assess(''), (None, 'insufficient_text'))
+        names = 'Gdansk Gdynia Sopot Krakow Wroclaw Poznan Lodz Szczecin Lublin Bialystok Katowice Gliwice Zabrze Bytom Rybnik ' * 3
+        self.assertEqual(L.assess(names), (None, 'language_not_confirmed'))
+
     def test_a_proposal_without_a_word_or_script_check_is_not_confirmed(self):
         self.assertFalse(L.confirmed('ro', EN))
         self.assertFalse(L.confirmed('lt', EN))

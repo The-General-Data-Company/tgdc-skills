@@ -314,7 +314,7 @@
       "unit": "fraction",
       "basis": "inferred",
       "denominator": 15,
-      "method": "py3langid 0.4.0; normalized model score >=0.90; >=80 alphabetic characters and >=12 words; first10000 sampled text characters; dominant document language inference (score is not calibrated probability); classified-English fraction of attempted sample, including unknown and failed files in denominator; null when all languages unknown; classification may be incorrect; no population or true-language bound estimate",
+      "method": "py3langid 0.4.0 proposes a language from the first 10000 sampled text characters (normalized model score >=0.90; >=80 alphabetic characters and >=12 words); the proposal counts only when a common-word list or the script of the text confirms it, the same rule as the data format specification, otherwise the file is unknown; dominant document language inference (score is not calibrated probability); classified-English fraction of attempted sample, including unknown and failed files in denominator; null when all languages unknown; classification may be incorrect; no population or true-language bound estimate",
       "coverage": {
         "inventory_files": 16,
         "enumeration_complete": true,
@@ -333,7 +333,7 @@
     },
     "denominator": 15,
     "unknown_documents": 10,
-    "method": "py3langid 0.4.0; normalized model score >=0.90; >=80 alphabetic characters and >=12 words; first10000 sampled text characters; dominant document language inference (score is not calibrated probability)",
+    "method": "py3langid 0.4.0 proposes a language from the first 10000 sampled text characters (normalized model score >=0.90; >=80 alphabetic characters and >=12 words); the proposal counts only when a common-word list or the script of the text confirms it, the same rule as the data format specification, otherwise the file is unknown; dominant document language inference (score is not calibrated probability)",
     "basis": "inferred",
     "coverage": {
       "inventory_files": 16,
@@ -352,7 +352,7 @@
     "No networking, OCR, native CAD or legacy Office extraction; unsupported files remain inventory only.",
     "Known format extensions are counted separately; arbitrary or absent filename suffixes are grouped as other in shared inventory to avoid disclosing identifiers. Exact suffixes remain private.",
     "Text is a bounded sample. Words and characters are measured; tokens, cases and workflow completion are not inferred.",
-    "Language is a model inference on document text samples; normalized model scores are not statistical confidence, mixed-language proportions or full-archive estimates.",
+    "Language is a model inference on document text samples, confirmed by a common-word or script check; normalized model scores are not statistical confidence, mixed-language proportions or full-archive estimates.",
     "CSV/XLSX first non-empty rows are treated as headers. Worksheet dimensions are declared metadata, not populated row totals; XLSX formulas use cached values only.",
     "DOCX extraction covers the main document only; headers, footers, comments, images and embedded objects are not extracted.",
     "EML extracts one preferred body, excludes attachments, and hashes message references privately; references do not establish complete cases.",

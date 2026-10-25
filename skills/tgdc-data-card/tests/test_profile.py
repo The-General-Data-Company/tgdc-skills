@@ -120,6 +120,28 @@ class ProfileTests(unittest.TestCase):
         self.assertEqual(sum(result['languages']['unknown_reasons'].values()), 1)
         self.assertNotIn('model_inference', result['languages']['unknown_reasons'])
 
+    def test_profile_counts_a_language_only_when_the_specification_would_confirm_it(self):
+        import spec_language
+        from profiler import detect_language
+        names = ('Wrzesien Pazdziernik Listopad Grudzien Styczen Luty Marzec Kwiecien Maj Czerwiec Lipiec Sierpien Gdansk Gdynia Sopot '
+                 'Krakow Wroclaw Poznan Lodz Szczecin Lublin Bialystok Katowice Gliwice Zabrze Bytom Rybnik ') * 3
+        english = ('The contractor shall deliver the completed works to the client within the agreed period and the client will '
+                   'inspect the works before the final acceptance. All drawings that are attached to this letter have been '
+                   'prepared by the design team. ') * 2
+        german = ('Der Auftragnehmer liefert die fertigen Arbeiten innerhalb der vereinbarten Frist an den Auftraggeber, und der '
+                  'Auftraggeber wird die Arbeiten vor der endgultigen Abnahme prufen. Alle Zeichnungen sind vom Planungsteam erstellt. ') * 2
+        self.assertEqual(spec_language._load_identifier().classify(names)[0], 'pl')
+        self.assertEqual(detect_language(names), ('unknown', 'language_not_confirmed'))
+        self.assertEqual(detect_language('abc 123'), ('unknown', 'insufficient_text'))
+        for text in (english, german, names, 'abc 123', ''):
+            self.assertEqual(detect_language(text)[0], spec_language.classify(text) or 'unknown')
+        (self.root / 'names.txt').write_text(names)
+        (self.root / 'letter.txt').write_text(english)
+        result = profile([self.root], self.out)
+        self.assertEqual(result['languages']['document_counts'], {'en': 1, 'unknown': 1})
+        self.assertEqual(result['languages']['unknown_reasons'], {'language_not_confirmed': 1})
+        self.assertIn('common-word', result['languages']['method'])
+
     def test_missing_detector_is_unknown_and_does_not_claim_zero_english(self):
         (self.root / 'one.txt').write_text('This synthetic document contains sufficient English text to classify a document when the local language dependency is installed and available.')
         run = subprocess.run([sys.executable, '-S', str(SCRIPTS / 'datacard.py'), 'profile', '--source', str(self.root), '--output', str(self.out)], capture_output=True, text=True)

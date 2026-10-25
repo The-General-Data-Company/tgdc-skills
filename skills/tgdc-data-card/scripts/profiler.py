@@ -18,6 +18,7 @@ from pathlib import Path
 
 from extractors import DEFAULT_LIMITS as PARSER_LIMITS, SUPPORTED, empty_result, extract
 from questions import questions
+import spec_language
 
 DEFAULT_LIMITS = {**PARSER_LIMITS, 'max_hash_bytes': 1024 * 1024 * 1024}
 EXCLUDED_NAMES = {'credentials', 'credential', 'secrets', 'secret', 'tokens', 'token',
@@ -31,7 +32,7 @@ PUBLIC_EXTENSIONS = SUPPORTED | frozenset({'dwg', 'dxf', 'dgn', 'step', 'stp', '
     'yaml', 'yml', 'ini', 'dat', 'bin', 'msg', 'pst', 'mbox'})
 SUCCESS = {'ok', 'capped'}
 ERRORS = {'malformed', 'binary', 'timeout', 'dependency_missing', 'io_error', 'changed'}
-LANGUAGE_METHOD = 'py3langid 0.4.0; normalized model score >=0.90; >=80 alphabetic characters and >=12 words; first10000 sampled text characters; dominant document language inference (score is not calibrated probability)'
+LANGUAGE_METHOD = 'py3langid 0.4.0 proposes a language from the first 10000 sampled text characters (normalized model score >=0.90; >=80 alphabetic characters and >=12 words); the proposal counts only when a common-word list or the script of the text confirms it, the same rule as the data format specification, otherwise the file is unknown; dominant document language inference (score is not calibrated probability)'
 
 
 class UnsupportedPlatform(ValueError):
@@ -186,20 +187,9 @@ def stratified_sample(files, maximum):
 
 
 def detect_language(text):
-    sample = text[:10000]
-    if sum(character.isalpha() for character in sample) < 80 or len(re.findall(r'\b\w+\b', sample)) < 12:
-        return 'unknown', 'insufficient_text'
-    try:
-        from py3langid.langid import LanguageIdentifier, MODEL_FILE
-        identifier = LanguageIdentifier.from_model_file(MODEL_FILE, norm_probs=True)
-        language, score = identifier.classify(sample)
-        if language in ('und', 'zxx') or float(score) < 0.90:
-            return 'unknown', 'low_model_score'
-        return str(language), 'model_inference'
-    except ImportError:
-        return 'unknown', 'dependency_missing'
-    except Exception:
-        return 'unknown', 'detector_error'
+    """(language, reason): the language only when the specification's rule would confirm it too."""
+    code, reason = spec_language.assess(text)
+    return (code, 'model_inference') if code else ('unknown', reason)
 
 
 def parser_worker(connection, kind, data, limits):
@@ -442,7 +432,7 @@ def profile(sources, output, limits=None):
         'No networking, OCR, native CAD or legacy Office extraction; unsupported files remain inventory only.',
         'Known format extensions are counted separately; arbitrary or absent filename suffixes are grouped as other in shared inventory to avoid disclosing identifiers. Exact suffixes remain private.',
         'Text is a bounded sample. Words and characters are measured; tokens, cases and workflow completion are not inferred.',
-        'Language is a model inference on document text samples; normalized model scores are not statistical confidence, mixed-language proportions or full-archive estimates.',
+        'Language is a model inference on document text samples, confirmed by a common-word or script check; normalized model scores are not statistical confidence, mixed-language proportions or full-archive estimates.',
         'CSV/XLSX first non-empty rows are treated as headers. Worksheet dimensions are declared metadata, not populated row totals; XLSX formulas use cached values only.',
         'DOCX extraction covers the main document only; headers, footers, comments, images and embedded objects are not extracted.',
         'EML extracts one preferred body, excludes attachments, and hashes message references privately; references do not establish complete cases.',
