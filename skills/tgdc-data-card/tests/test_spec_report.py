@@ -113,6 +113,18 @@ class SpecReportTests(unittest.TestCase):
         self.assertIn('(same messages)', flat)
         self.assertIn('.eml (RFC 822, attachments embedded)', flat)
         self.assertIn('project milestones', flat)
+        self.assertIn("next to the project's other documents", flat)
+        self.assertIn('2021-2024', flat)                                  # the period column of the mailbox table is wide enough
+        self.assertIn(f"Unique file contents (by SHA-256) {totals['unique_contents']} of {totals['files']} files", flat)
+        self.assertIn('Mailbox 3 (company, Gmail): 5 messages in the account, volume and attachment figures cover the 3 received messages '
+                      'and increase once the sent messages are added', flat)
+        self.assertIn('Mailbox 2 (co-owner, Yahoo): 4 received messages held; volume and attachment figures increase once the sent messages are added', flat)
+        self.assertIn('Synthetic Works SRL', flat)
+        self.assertIn('Data format specification of the original files \u00b7 Construction contractor (water, sewerage) \u00b7 October 2026', flat)
+        self.assertIn("the document's own date where known, otherwise the file date", flat)
+        _, card_pages = self.card_only()
+        specification = ' '.join(' '.join(pages[len(card_pages):]).split())
+        self.assertNotIn('ARCHIVE S', specification.upper())              # header words are not broken
 
     def test_sections_without_data_are_left_out(self):
         spec = copy.deepcopy(self.spec)
@@ -149,7 +161,8 @@ class SpecReportTests(unittest.TestCase):
         self.assertIn('about 15,800 sheets: about 13,400 engineering drawings + about 2,400 schematics / diagrams, in about 6,300 files', flat)
         self.assertIn('A4 7,200, A3 4,400, A2 800, A1 500, A0 300, US Letter / Legal / Tabloid 700, image file 300, other / custom size 1,600', flat)
         self.assertIn('about 27,000 (about 1.7 per sheet, range 1.5-1.9)', flat)
-        self.assertIn('company file archive: about 12,400 sheets', flat)
+        self.assertIn('company file archive: 12,400 sheets; only in the e-mail (attachments): 2,500 sheets; only inside compressed archives: 900 sheets', flat)
+        self.assertNotIn('archive: about', flat)
         self.assertIn('Estimated individual views', flat)
         self.assertRegex(flat, r'15,790 .*sheets|sheets 15,790|15,790')      # detail table to the nearest 10, not 100
 
@@ -167,6 +180,38 @@ class SpecReportTests(unittest.TestCase):
             self.assertNotIn(token.lower(), flat, token)
         self.assertNotIn(str(self.base).lower(), flat)
         self.assertNotIn('@synthetic', flat)
+
+    def test_notes_use_singular_and_plural_correctly_and_name_unchecked_mailbox_pdfs(self):
+        spec = copy.deepcopy(self.spec)
+        archives = spec['methodology']['archives']
+        archives.update({'members_not_extracted': 1, 'partly_readable': 1, 'not_opened': {'zip:damaged': 1}})
+        spec['methodology']['unchecked_pdfs'] = {'files': 996, 'bytes': 700000000, 'mailbox_attachments': {'files': 996, 'bytes': 700000000}}
+        spec['methodology']['hidden_entries'], spec['methodology']['credential_folders'], spec['methodology']['symlinks'] = 1, 1, 1
+        _, pages = self.render(spec, 'single.pdf')
+        flat = ' '.join(' '.join(pages).split())
+        for sentence in ['1 file could not be extracted (password-protected or damaged) and is not counted', '1 archive was only partly readable',
+                         '1 archive could not be opened at all', '996 PDFs (0.7 GB) among the extracted mailbox attachments were not checked for a text layer',
+                         '1 hidden file or folder (names that start with a dot) was not entered', '1 folder with a credential-like name was not entered',
+                         '1 symbolic link was not followed']:
+            self.assertIn(sentence, flat, sentence)
+        _, card_pages = self.card_only()
+        specification = ' '.join(' '.join(pages[len(card_pages):]).split())
+        for wrong in ('1 files', '1 archives', '1 PDFs', '1 projects', '1 sheets'):
+            self.assertNotRegex(specification, r'(?<![\d,])' + wrong, wrong)
+
+    def test_a_page_break_never_leaves_fewer_than_four_body_rows_on_either_side(self):
+        import spec_report
+        from reportlab.platypus import Paragraph
+        rows = [[Paragraph(f'row {i}', spec_report.card.ParagraphStyle('x', fontSize=8)), '1'] for i in range(40)]
+        header = [Paragraph('head', spec_report.card.ParagraphStyle('x', fontSize=8)), 'v']
+        table = spec_report.BalancedTable([header] + rows, colWidths=[100, 40], repeatRows=1)
+        for height in range(60, 520, 7):
+            parts = table.split(300, height)
+            if not parts:
+                continue
+            self.assertEqual(len(parts), 2, height)
+            self.assertGreaterEqual(len(parts[0]._cellvalues) - 1, 4, height)
+            self.assertGreaterEqual(len(parts[1]._cellvalues) - 1, 4, height)
 
     def test_an_invalid_specification_is_rejected_and_output_is_preserved(self):
         out = self.base / 'keep.pdf'

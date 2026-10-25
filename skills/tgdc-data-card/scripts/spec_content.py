@@ -408,7 +408,8 @@ def analyze_message(data, attachments=True, deadline=None):
         if not attachments:
             continue
         extension = raw_extension(filename or '')
-        record = {'sha': hashlib.sha256(payload).hexdigest(), 'ext': extension, 'size': len(payload), 'name': filename or ''}
+        record = {'sha': hashlib.sha256(payload).hexdigest(), 'ext': extension, 'size': len(payload),
+                  'name': (filename or '').encode('utf-8', 'replace').decode('utf-8')}
         if extension == 'pdf' or kind == 'application/pdf':
             record['pdf'] = analyze_pdf(payload, text_pages=3, deadline=deadline)
         elif extension in ('tif', 'tiff'):

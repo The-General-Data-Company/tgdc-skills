@@ -102,7 +102,7 @@ Reads files and folders you select on your own machine and builds one reviewable
 - It never emails, uploads, or submits anything by itself. You decide whether to share the PDF.
 - Its scripts make no network requests and use no telemetry. Only the Python package setup downloads software, from PyPI, never your data.
 - It never reads a file before you confirm that you are authorized to use the selection and that it excludes HIPAA protected health information and payment-card data.
-- It never opens files that look like credentials (certificates, key stores, password files, found by extension and file name). It only counts them.
+- It never parses files that look like credentials (certificates, key stores, password files, found by extension and file name). It counts them and records a SHA-256 checksum of their bytes, which stays in the private cache, so that copies are recognized.
 - It never executes anything found in an archive, and it rejects archive members whose path is absolute or contains `..`.
 - It never certifies anything. The PDF is not an anonymization, a privacy check, or proof of your rights to share.
 

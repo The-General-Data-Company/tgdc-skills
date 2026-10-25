@@ -115,19 +115,43 @@ def _cell(value, size=8, align='left', color=card.WHITE, font='Outfit'):
 def _head(text, align='left'):
     safe = escape(card._plain(text.upper(), 'Mono'))
     style = ParagraphStyle('spechead', fontName='Mono', fontSize=6.3, leading=8.4, textColor=card.BLUE,
-                           alignment=TA_RIGHT if align == 'right' else TA_LEFT, splitLongWords=True)
+                           alignment=TA_RIGHT if align == 'right' else TA_LEFT, splitLongWords=False)
     return Paragraph(safe, style)
 
 
-def _table(header, rows, widths, aligns, size=8, total=False):
+class BalancedTable(Table):
+    """A table that never leaves fewer than MIN_ROWS body rows on either side of a page break."""
+    MIN_ROWS = 4
+
+    def split(self, availWidth, availHeight):
+        parts = Table.split(self, availWidth, availHeight)
+        if len(parts) != 2:
+            return parts
+        header = self.repeatRows if isinstance(self.repeatRows, int) else len(self.repeatRows)
+        height = availHeight
+        while True:
+            head, tail = parts
+            if len(head._cellvalues) - header < self.MIN_ROWS:
+                return []                       # no decent first part fits here: start the table on the next page
+            if len(tail._cellvalues) - header >= self.MIN_ROWS:
+                return parts
+            height -= 8
+            if height <= 0:
+                return []
+            parts = Table.split(self, availWidth, height)
+            if len(parts) != 2:
+                return []
+
+
+def _table(header, rows, widths, aligns, size=8, total=False, pad=3.5):
     data = [[_head(text, aligns[i]) for i, text in enumerate(header)]]
     for index, row in enumerate(rows):
         last = total and index == len(rows) - 1
         data.append([_cell(value, size, aligns[i], card.WHITE, 'OutfitMedium' if last else 'Outfit') for i, value in enumerate(row)])
-    table = Table(data, colWidths=widths, repeatRows=1, splitByRow=1, hAlign='LEFT')
+    table = BalancedTable(data, colWidths=widths, repeatRows=1, splitByRow=1, hAlign='LEFT')
     style = [('LINEBELOW', (0, 0), (-1, -1), .4, card.RULE), ('LEFTPADDING', (0, 0), (0, -1), 0), ('LEFTPADDING', (1, 0), (-1, -1), 4),
              ('RIGHTPADDING', (0, 0), (-1, -1), 5),
-             ('TOPPADDING', (0, 0), (-1, -1), 3.5), ('BOTTOMPADDING', (0, 0), (-1, -1), 3.5), ('VALIGN', (0, 0), (-1, -1), 'TOP')]
+             ('TOPPADDING', (0, 0), (-1, -1), pad), ('BOTTOMPADDING', (0, 0), (-1, -1), pad), ('VALIGN', (0, 0), (-1, -1), 'TOP')]
     if total:
         style.append(('LINEABOVE', (0, -1), (-1, -1), .8, card.MUTED))
     table.setStyle(TableStyle(style))
@@ -135,7 +159,7 @@ def _table(header, rows, widths, aligns, size=8, total=False):
 
 
 def _item_table(rows):
-    return _table(['Item', 'Value'], rows, [165, WIDTH - 165], ['left', 'left'], size=8.4)
+    return _table(['Item', 'Value'], rows, [166, WIDTH - 166], ['left', 'left'], size=8, pad=1.9)
 
 
 def _heading(title):
@@ -278,9 +302,13 @@ def mailbox_summary(spec):
     if mailboxes.get('other_files'):
         parts.append(f"{plural(mailboxes['other_files'], 'other file')}")
     text += (f'{noun(files, "file")}: ' if len(parts) > 1 else '') + ' + '.join(parts)
-    for item in mailboxes['sent_missing']:
-        text += (f"; {item['label']}: {plural(item['received'], 'received message')} held; volume and attachment figures "
-                 'increase once the sent messages are added')
+    for item in mailboxes['incomplete']:
+        if item['account']:
+            text += (f"; {item['label']}: {plural(item['messages'], 'message')} in the account, volume and attachment figures cover the "
+                     f"{plural(item['held'], 'received message')} and increase once the sent messages are added")
+        else:
+            text += (f"; {item['label']}: {plural(item['held'], 'received message')} held; volume and attachment figures "
+                     'increase once the sent messages are added')
     return text
 
 
@@ -347,12 +375,13 @@ def drawing_rows(spec):
                      f"range {views['low']}-{views['high']})"))
     names = {'file': 'company file archive', 'mail': 'only in the e-mail (attachments)', 'archive': 'only inside compressed archives'}
     if drawings['locations']:
-        rows.append(('Where the sheets are', '; '.join(f'{names[key]}: {about_noun(count, step, "sheet")}' for key, count in drawings['locations'].items())))
+        rows.append(('Where the sheets are', '; '.join(f'{names[key]}: {detail(count, step)} sheet{"" if count == 1 else "s"}'
+                                                          for key, count in drawings['locations'].items())))
     projects = drawings.get('projects')
     if projects:
         share = round(100 * projects['sheets'] / projects['total_sheets']) if projects['total_sheets'] else 0
         text = (f"{share}% of the sheets sit in {n(projects['projects_with_sheets'])} of the {noun(projects['projects'], 'project file')}, "
-                'next to the other documents of the project')
+                "next to the project's other documents")
         stages = projects.get('stages')
         if stages:
             for level in stages['levels']:
@@ -420,7 +449,7 @@ def summary_rows(spec):
         rows.append(('Mailbox export log and script files', f"{T.size_text(parts['export_logs']['bytes'])}, {noun(parts['export_logs']['files'], 'file')}"))
     rows.extend(archive_rows(spec))
     if totals['hashed_files']:
-        rows.append(('Unique file contents (by SHA-256)', f"{n(totals['unique_contents'])} of {noun(totals['hashed_files'], 'file')}"))
+        rows.append(('Unique file contents (by SHA-256)', f"{n(totals['unique_contents'])} of {noun(totals['files'], 'file')}"))
     periods = spec.get('periods', {})
     if 'documents' in periods:
         rows.append(('Document period (file archive, 99% of dated documents)', T.year_range(*periods['documents'])))
@@ -439,8 +468,8 @@ def title_block(spec):
     pieces += [spec[key] for key in ('sector_line', 'month') if spec.get(key)]
     story = [card._label('Data format specification / original files'), card._paragraph(card._short(big, 70), 27, card.WHITE, 'OutfitMedium', 32)]
     if pieces:
-        story.append(card._paragraph(' / '.join(pieces), 11, card.MUTED, 'OutfitLight'))
-    return story + [Spacer(1, 6)]
+        story.append(card._paragraph(' \u00b7 '.join(pieces), 9.6, card.MUTED, 'OutfitLight', 12))
+    return story
 
 
 def summary_section(spec):
@@ -457,7 +486,7 @@ def category_section(spec):
                      f"{100 * category['bytes'] / total:.1f}", n(category['archive_files']), gb2(category['archive_bytes']), ', '.join(category['formats'])])
     rows.append(['Total', n(spec['totals']['files']), '', gb2(spec['totals']['bytes']), '100.0', n(sum(c['archive_files'] for c in spec['categories'])),
                  gb2(sum(c['archive_bytes'] for c in spec['categories'])), ''])
-    widths = [138, 40, 40, 40, 34, 42, 42, WIDTH - 376]
+    widths = [128, 38, 38, 38, 34, 50, 50, WIDTH - 376]
     aligns = ['left', 'right', 'right', 'right', 'right', 'right', 'right', 'left']
     if not split_inside:
         for index in (6, 5):
@@ -468,7 +497,7 @@ def category_section(spec):
     intro = ('All files held plus the contents of the compressed archives (unpacked); the archive contents are also shown in their own columns.'
              if split_inside else 'All files held.')
     chart_rows = sorted(((T.short_category(c['name']), c['bytes'] / 1e9) for c in spec['categories']), key=lambda item: -item[1])
-    return _section('Content by category', intro) + [_table(header, rows, widths, aligns, size=7.6, total=True), Spacer(1, 12),
+    return _section('Content by category', intro) + [_table(header, rows, widths, aligns, size=8, total=True), Spacer(1, 12),
                                                        CategoryChart(chart_rows, 'Volume by content category (GB)')]
 
 
@@ -482,7 +511,7 @@ def formats_section(spec):
             del row[4]
         del header[4], widths[4], aligns[4]
         widths[1] = WIDTH - widths[0] - widths[2] - widths[3]
-    return _section('File formats (top 35 by volume)') + [_table(header, rows, widths, aligns, size=7.8)]
+    return _section('File formats (top 35 by volume)') + [_table(header, rows, widths, aligns, size=8)]
 
 
 EXTENSION_TEXT = {'mbox': '.mbox (single mailbox file)', 'eml': '.eml (RFC 822, attachments embedded)', 'eml+mbox': '.eml (RFC 822, attachments embedded) and .mbox'}
@@ -493,8 +522,9 @@ def mailbox_other_text(box):
     if box.get('metadata'):
         extensions = ', '.join('.' + e for e in box['metadata']['extensions'])
         pieces.append(f"{noun(box['metadata']['files'], 'per-message metadata file')} ({extensions})")
-    if box.get('sent_missing'):
-        pieces.append(f"{noun(box['received'], 'received message')} held; volume and attachment figures increase once the sent messages are added")
+    if box.get('sent_missing') or box.get('held_messages'):
+        held = box.get('held_messages') or box['received']
+        pieces.append(f"{noun(held, 'received message')} held; volume and attachment figures increase once the sent messages are added")
     if box.get('other_files'):
         pieces.append(plural(box['other_files'], 'other file'))
     return '; '.join(pieces)
@@ -530,9 +560,9 @@ def mailbox_section(spec):
     if logs:
         rows.append(['Mailbox export log and script files', '', gb2(logs['bytes']), '', 'scripts / logs', noun(logs['files'], 'file')])
     header = ['Mailbox', 'Messages', 'GB', 'Period', 'Format', 'Other files']
-    widths = [128, 52, 36, 46, 100, WIDTH - 362]
+    widths = [108, 70, 34, 58, 92, WIDTH - 362]
     aligns = ['left', 'right', 'right', 'left', 'left', 'left']
-    return _section('Mailboxes') + [_table(header, rows, widths, aligns, size=7.6)]
+    return _section('Mailboxes') + [_table(header, rows, widths, aligns, size=8)]
 
 
 def language_section(spec):
@@ -570,7 +600,7 @@ def archive_section(spec):
     intro = ("Detail of the archive contents included in the totals. 'All unpacked' counts every file inside the archives; 'new content' leaves out "
              'files identical to another file, nested archives whose contents are counted, and repeats within the archives.')
     extra = [row for row in summary_rows(spec) if row[0] in dict(archive_rows(spec)) or row[0].startswith('Native CAD')]
-    story = _section('Inside the compressed archives', intro) + [_table(header, rows, widths, aligns, size=7.8, total=True)]
+    story = _section('Inside the compressed archives', intro) + [_table(header, rows, widths, aligns, size=8, total=True)]
     return story + ([Spacer(1, 10), _item_table(extra)] if extra else [])
 
 
@@ -620,7 +650,7 @@ def drawings_section(spec):
         story.append(_item_table(rows))
     if spec.get('drawings'):
         story.extend([Spacer(1, 10), _table(['Group', 'Item', 'Value'], [list(row) for row in detail_rows(spec)], [118, WIDTH - 118 - 80, 80],
-                                            ['left', 'left', 'right'], size=7.8)])
+                                            ['left', 'left', 'right'], size=8)])
     return story
 
 
@@ -649,7 +679,7 @@ def years_section(spec):
     story = _section('By year')
     if rows:
         story.extend([YearChart(rows, title, with_mail), Spacer(1, 8)])
-    return story + [_table(header, table_rows, widths, aligns, size=7.8, total=True)]
+    return story + [_table(header, table_rows, widths, aligns, size=8, total=True)]
 
 
 def notes(spec):
@@ -668,9 +698,10 @@ def notes(spec):
                      'including archives nested in archives together with their contents. Many files inside the archives are copies of files held loose: '
                      "'new content' leaves out files identical to another file, nested archives whose contents are counted, and repeats within the archives. "
                      "'By category' and 'By format' show the archive contents in separate columns; 'Inside archives' gives the detail.")
-        text = (f"Inside archives: {n(archives['members_not_extracted'])} files could not be extracted (password-protected or damaged) and are not counted; "
-                f"{n(archives['partly_readable'])} archives were only partly readable (password-protected members, damage, a size limit or missing parts "
-                'of a multi-part archive). Multi-part archives are counted as one archive.')
+        lost, partly = archives['members_not_extracted'], archives['partly_readable']
+        text = (f"Inside archives: {plural(lost, 'file')} could not be extracted (password-protected or damaged) and {'is' if lost == 1 else 'are'} not counted; "
+                f"{plural(partly, 'archive')} {'was' if partly == 1 else 'were'} only partly readable (password-protected members, damage, a size limit "
+                'or missing parts of a multi-part archive). Multi-part archives are counted as one archive.')
         items.append(text)
     refused = archives['not_opened']
     if refused:
@@ -679,23 +710,34 @@ def notes(spec):
         sentence = []
         if no_tool:
             count = sum(count for key, count in refused.items() if key.endswith('no extraction tool'))
-            sentence.append(f"{n(count)} archives ({', '.join(no_tool)}) could not be unpacked because no extraction tool was available on this machine; "
+            sentence.append(f"{plural(count, 'archive')} ({', '.join(no_tool)}) could not be unpacked because no extraction tool was available on this machine; "
                             'their contents are not counted')
         if others:
-            sentence.append(f'{n(others)} archives could not be opened at all (password-protected or damaged) and their contents are not counted')
+            sentence.append(f"{plural(others, 'archive')} could not be opened at all (password-protected, damaged, too large or too deeply nested) "
+                            'and their contents are not counted')
         items.append('Inside archives: ' + '; '.join(sentence) + '.')
     scanned = ('Scanned vs text PDFs: determined from the text layer of the first page (first three pages for files inside archives).')
     unchecked = method['unchecked_pdfs']
     if unchecked['files']:
-        scanned += (f" {n(unchecked['files'])} PDFs ({gb1(unchecked['bytes'])}) could not be checked for a text layer and are counted as text documents.")
+        mailbox = unchecked.get('mailbox_attachments', {'files': 0, 'bytes': 0})
+        one = unchecked['files'] == 1
+        if mailbox['files'] == unchecked['files']:
+            scanned += (f" {noun(unchecked['files'], 'PDF')} ({gb1(unchecked['bytes'])}) among the extracted mailbox attachments "
+                        f"{'was' if one else 'were'} not checked for a text layer and {'is' if one else 'are'} counted as text documents.")
+        else:
+            scanned += (f" {noun(unchecked['files'], 'PDF')} ({gb1(unchecked['bytes'])}) could not be checked for a text layer and "
+                        f"{'is' if one else 'are'} counted as text documents.")
+            if mailbox['files']:
+                scanned += f" {n(mailbox['files'])} of them {'is' if mailbox['files'] == 1 else 'are'} among the extracted mailbox attachments."
     items.append(scanned)
     if any(c['name'] == T.CREDENTIALS for c in spec['categories']):
         items.append('Credential and key files (digital certificates, key stores, files holding passwords) are identified from their format and file name; '
-                     'they were not opened and are reported by count and size only, and they are not hashed.')
-    items.append("'Unique' = distinct file contents by SHA-256; the archive contains working copies of some documents across project folders.")
+                     'they are never read as documents or kept, and are reported by count and size. Only a SHA-256 checksum of their bytes is computed, '
+                     'so that copies of the same file are counted once.')
+    items.append("'Unique' = distinct file contents by SHA-256; copies of the same document in several folders count once.")
     if spec.get('drawings'):
         text = ('Technical drawings and schematics are counted as sheets (pages), across every location: file archive, mailboxes and the contents of the '
-                'compressed archives, each distinct file once. The figures are rounded and conservative. Sheet sizes come from the page dimensions.')
+                'compressed archives, each distinct file once. The figures are rounded. Sheet sizes come from the page dimensions.')
         if spec['drawings'].get('calibrated'):
             text += (f" Sheet totals are corrected with a visual check of {n(spec['drawings']['sampled_pages'])} sampled pages, and individual views "
                      '(plans, sections, details, elevations) are an estimate from that sample.')
@@ -707,20 +749,26 @@ def notes(spec):
     years = spec.get('years')
     if years:
         text = 'By year: file archive' + (' and e-mails' if years['has_mail'] else '') + ' only' + (
-            ' (files inside compressed archives are not dated)' if has_archives else '') + '; the own date of the document where known, otherwise the file date.'
+            ' (files inside compressed archives are not dated)' if has_archives else '') + "; the document's own date where known, otherwise the file date."
         if years.get('unreliable'):
             count = years['unreliable']['files'] + years['unreliable']['messages']
-            text += (f" {n(count)} files or messages carry a date that is clearly not reliable (before 1990 or after {spec['current_year']}) "
-                     "and are shown as 'date not reliable'.")
+            text += (f" {plural(count, 'file or message', 'files or messages')} {'carries' if count == 1 else 'carry'} a date that is clearly not reliable "
+                     f"(before 1990 or after {spec['current_year']}) and {'is' if count == 1 else 'are'} shown as 'date not reliable'.")
         items.append(text)
     items.append('By format: GB values are rounded to three decimals; 0.000 means less than 0.5 MB. Irregular extensions (file-name fragments after a dot) '
                  "are grouped as '(other / irregular extension)'.")
     if method['unreadable_files'] or method['time_limited_files']:
-        items.append(f"{n(method['unreadable_files'] + method['time_limited_files'])} files could not be read completely (access problem, change during "
-                     'the run or a time limit); they are counted by size and, where possible, by name only.')
-    skipped = method['hidden_entries'] + method['credential_folders']
-    if skipped:
-        items.append(f"{n(skipped)} hidden or credential-named folders and files were not entered or counted, and links were not followed.")
+        count = method['unreadable_files'] + method['time_limited_files']
+        items.append(f"{plural(count, 'file')} could not be read completely (access problem, change during the run or a time limit); "
+                     f"{'it is' if count == 1 else 'they are'} counted by size and, where available, by content hash only.")
+    if method['hidden_entries']:
+        items.append(f"{plural(method['hidden_entries'], 'hidden file or folder', 'hidden files and folders')} (names that start with a dot) "
+                     f"{'was' if method['hidden_entries'] == 1 else 'were'} not entered and not counted.")
+    if method['credential_folders']:
+        items.append(f"{plural(method['credential_folders'], 'folder')} with a credential-like name {'was' if method['credential_folders'] == 1 else 'were'} "
+                     'not entered and its contents are not counted.')
+    if method['symlinks']:
+        items.append(f"{plural(method['symlinks'], 'symbolic link')} {'was' if method['symlinks'] == 1 else 'were'} not followed and not counted.")
     items.append('No file names, client names or document content are included in this specification.')
     if spec.get('languages'):
         items.append('Languages: detected per file from the document or message text and confirmed by a common-word (or script) check; a file can contain '

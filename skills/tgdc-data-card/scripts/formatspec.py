@@ -30,10 +30,10 @@ from profiler import (checked_path, excluded, open_nofollow, output_directory, p
 from spec_taxonomy import is_credential_name, raw_extension
 
 SCHEMA = 'tgdc-format-spec/1.0'
-ENGINE = 3
+ENGINE = 4
 CACHE_NAME = 'spec-cache.private.sqlite'
 SETTINGS_DEFAULTS = {
-    'parse_seconds': 300.0, 'archive_seconds': 7200.0, 'member_parse_bytes': 256 * 1024 * 1024,
+    'parse_seconds': 300.0, 'archive_seconds': 7200.0, 'member_parse_bytes': 128 * 1024 * 1024,
     'max_message_bytes': 64 * 1024 * 1024, 'max_archive_bytes': 20 * 10 ** 9, 'max_archive_ratio': 200, 'max_depth': 5,
     'grace_seconds': 60.0, 'hash_floor_seconds': 900.0,
 }
@@ -387,7 +387,7 @@ def process_task(task, settings, stage, descriptors):
         if (info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns) != tuple(task['identity']):
             return {'status': 'changed'}
         size = task['identity'][2]
-        keep = size <= settings['member_parse_bytes']
+        keep = size <= settings['member_parse_bytes'] and not task.get('hash_only')
         digest = hashlib.sha256()
         buffer = bytearray() if keep else None
         head = b''
@@ -408,6 +408,8 @@ def process_task(task, settings, stage, descriptors):
         stage(sha)
         data = bytes(buffer) if keep else None
         result = {'status': 'ok', 'sha': sha}
+        if task.get('hash_only'):
+            return result          # credential and key files: only the checksum, never parsed
         now = time.monotonic()
         deadline = now + settings['parse_seconds']
         try:
@@ -682,10 +684,6 @@ def run_spec(sources, output, config=None, workers=None, limits=None, tools=None
             if known.get(entry.id) == (entry.size, entry.mtime_ns):
                 done_files += 1
                 done_bytes += entry.size
-            elif entry.credential:
-                cache.put(entry, {'status': 'credential'})
-                done_files += 1
-                done_bytes += entry.size
             else:
                 todo.append(entry)
         total_bytes = sum(entry.size for entry in entries)
@@ -696,7 +694,7 @@ def run_spec(sources, output, config=None, workers=None, limits=None, tools=None
             ext = raw_extension(entry.name)
             task = {'id': entry.id, 'path': entry.path, 'name': entry.name, 'identity': (entry.dev, entry.ino, entry.size, entry.mtime_ns),
                     'role': entry.role, 'style': entry.style, 'parts': entry.parts, 'long': ext in ('mbox',) or entry.role == 'leader' or ext in spec_archives.ARCHIVE_EXTENSIONS,
-                    'size': entry.size}
+                    'size': entry.size, 'hash_only': entry.credential}
             if extra:
                 task.update(extra)
             return task

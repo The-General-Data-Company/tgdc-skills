@@ -182,12 +182,11 @@ class Build:
             record.mailbox = self.mailbox_of(entry, self.cfg)
             record.arch, record.arch_hashes = result.get('arch'), None
             if record.arch is not None:
-                members = record.arch.get('members') or []
+                members = record.arch.pop('members', None) or []       # members are read again in pass 2; keep memory small
                 if members:
                     self.archive_ids.append(identifier)
                 if record.mailbox is not None:
                     record.arch_hashes = [m['h'] for m in members if m.get('h')]
-                record.arch = {key: value for key, value in record.arch.items() if key != 'members'}
             record.year = result.get('year') or (record.mail or {}).get('year')
             record.mtime_year = datetime.fromtimestamp(entry.mtime_ns / 1e9, timezone.utc).year
             record.mclass, record.part, record.category = None, False, None
@@ -216,17 +215,24 @@ class Build:
             for record in emls:
                 record.mclass = 'eml'
             alt_mbox, primary_mbox = [], []
+            primary_count = extra_count = 0
             for record in members:
                 if record.ext != 'mbox' or not record.mbox:
                     continue
                 ids = {m['mid'] for m in record.mbox['messages'] if m.get('mid')}
-                if eml_ids and ids and len(ids & eml_ids) / len(ids) >= OVERLAP:
+                inside = len(ids & eml_ids)
+                # Same messages when the .mbox holds at least 95% of the .eml set, or the .eml set holds at least 95% of the .mbox.
+                same = bool(eml_ids and ids) and max(inside / len(eml_ids), inside / len(ids)) >= OVERLAP
+                unknown = [m for m in record.mbox['messages'] if not m.get('known') and not m.get('timeout')]
+                messages.extend(unknown)       # messages that exist only in the .mbox (for example the sent folder) still belong to the account
+                if same:
                     record.mclass = 'alt_mbox'
                     alt_mbox.append(record)
+                    extra_count += len(unknown)
                 else:
                     record.mclass = 'mbox_primary'
                     primary_mbox.append(record)
-                    messages.extend(m for m in record.mbox['messages'] if not m.get('known') and not m.get('timeout'))
+                    primary_count += len(unknown)
             if not emls and not alt_mbox and not primary_mbox:
                 # a declared mailbox root that holds no mail is an ordinary folder
                 for record in members:
@@ -256,8 +262,8 @@ class Build:
                     matched = sum(1 for sha in record.arch_hashes if sha in referenced)
                     if matched / len(record.arch_hashes) >= OVERLAP:
                         record.mclass = 'alt_archive'
-            self.mail[index] = {'members': members, 'messages': messages, 'eml_count': len(emls), 'primary_messages': sum(
-                1 for r in primary_mbox for m in r.mbox['messages'] if not m.get('known') and not m.get('timeout'))}
+            self.mail[index] = {'members': members, 'messages': messages, 'eml_count': len(emls), 'primary_messages': primary_count,
+                                'extra_messages': extra_count}
         # e-mail held outside configured mailboxes still contributes attachments and language
         for record in self.records:
             if record.mailbox is None:
@@ -278,7 +284,7 @@ class Build:
         all_hashes, loose_hashes = set(), set()
         hashed = total_files = total_bytes = 0
         parts = {'file_archive': [0, 0], 'mailboxes': [0, 0], 'alt': [0, 0], 'log': [0, 0]}
-        unchecked = [0, 0]
+        unchecked, unchecked_mail = [0, 0], [0, 0]
         years, year_bytes = Counter(), Counter()
         unreliable = [0, 0]
         document_years = []
@@ -322,6 +328,9 @@ class Build:
             if (record.ext == 'pdf' and not record.cred and (pdf.get('unchecked') or record.status in ('timeout', 'crashed', 'error', 'io_error', 'changed'))):
                 unchecked[0] += 1
                 unchecked[1] += size
+                if record.mclass == 'alt_attachments':
+                    unchecked_mail[0] += 1
+                    unchecked_mail[1] += size
             if record.mailbox is None:
                 bucket = 'file_archive'
             elif record.mclass in BUSINESS:
@@ -374,7 +383,7 @@ class Build:
                 if facts:
                     sheets.add(attachment['sha'], facts, attachment.get('name', ''), 'mail')
         for record in self.records:
-            if record.mbox and record.mclass != 'alt_mbox':
+            if record.mbox:
                 for message in record.mbox['messages']:
                     if message.get('lang') and not message.get('known'):
                         language.append((message['lang']['lang'], message.get('size', 0), True, message['lang']['chunks']))
@@ -408,7 +417,7 @@ class Build:
                     category = T.ARCHIVES
                 label = extension_label(base)
                 container = bool(member.get('cont'))
-                new = (not container) and (cred or (sha not in loose_hashes and sha not in seen))
+                new = (not container) and (sha is None or (sha not in loose_hashes and sha not in seen))
                 if sha:
                     seen.add(sha)
                     all_hashes.add(sha)
@@ -446,7 +455,7 @@ class Build:
             'total_bytes': total_bytes, 'parts': parts, 'unchecked': unchecked, 'years': years, 'year_bytes': year_bytes,
             'unreliable': unreliable, 'document_years': document_years, 'cad': cad, 'language': language, 'projects': projects,
             'members_total': members_total, 'members_new': members_new, 'archive_stats': archive_stats, 'not_opened': not_opened,
-            'tools_used': tools_used, 'member_cats': member_cats})
+            'tools_used': tools_used, 'member_cats': member_cats, 'unchecked_mail': unchecked_mail})
 
     def assemble(self, state):
         cfg = self.cfg
@@ -493,11 +502,8 @@ class Build:
         for name in T.CATEGORIES:
             stat = categories[name]
             if stat['files']:
-                row = {'name': name, 'files': stat['files'], 'bytes': stat['bytes'], 'archive_files': stat['arch_files'],
-                       'archive_bytes': stat['arch_bytes'], 'formats': top_formats(stat['ext'])}
-                if name != CREDENTIALS:
-                    row['unique'] = len(stat['unique'])
-                spec['categories'].append(row)
+                spec['categories'].append({'name': name, 'files': stat['files'], 'bytes': stat['bytes'], 'archive_files': stat['arch_files'],
+                                           'archive_bytes': stat['arch_bytes'], 'formats': top_formats(stat['ext']), 'unique': len(stat['unique'])})
         ranked = sorted(formats.items(), key=lambda item: (-item[1][1], item[0][1], item[0][0]))[:TOP_FORMATS]
         spec['formats'] = [{'ext': label, 'category': category, 'files': row[0], 'bytes': row[1], 'archive_files': row[2]}
                            for (label, category), row in ranked]
@@ -532,7 +538,8 @@ class Build:
         walk = self.context['walk']
         spec['methodology'] = {
             'hash': 'sha256', 'unreadable_files': self.unreadable.get('unreadable', 0), 'time_limited_files': self.unreadable.get('limited', 0),
-            'unchecked_pdfs': {'files': state['unchecked'][0], 'bytes': state['unchecked'][1]},
+            'unchecked_pdfs': {'files': state['unchecked'][0], 'bytes': state['unchecked'][1],
+                               'mailbox_attachments': {'files': state['unchecked_mail'][0], 'bytes': state['unchecked_mail'][1]}},
             'hidden_entries': walk.get('hidden_entries', 0), 'credential_folders': walk.get('credential_folders', 0),
             'symlinks': walk.get('symlinks', 0), 'special_files': walk.get('special_files', 0), 'unreadable_folders': walk.get('unreadable_folders', 0),
             'archives': {'opened': archive_stats['opened'], 'partly_readable': archive_stats['partly'],
@@ -552,8 +559,10 @@ class Build:
                 continue
             members = result['members']
             business = [r for r in members if r.mclass in BUSINESS]
-            messages = result['eml_count'] + result['primary_messages']
+            messages = result['eml_count'] + result['primary_messages'] + result['extra_messages']
             row = {'label': mailbox['label'], 'messages': messages, 'bytes': sum(r.size for r in business), 'files': len(business)}
+            if result['extra_messages'] and result['eml_count']:
+                row['held_messages'] = result['eml_count']       # the .mbox holds the whole account, the .eml files only part of it
             years = [m['year'] for m in result['messages'] if m.get('year') and MIN_YEAR <= m['year'] <= self.year_now]
             if years:
                 row['period'] = [min(years), max(years)]
@@ -572,7 +581,7 @@ class Build:
                 sent = sum(1 for m in counted if m.get('from') == owner)
                 row['sent'] = sent
                 row['received'] = len(counted) - sent
-                row['sent_missing'] = sent == 0
+                row['sent_missing'] = sent == 0 and 'held_messages' not in row
             alternatives = []
             for mclass, kind in ALT_ORDER:
                 chosen = [r for r in members if r.mclass == mclass]
@@ -603,7 +612,8 @@ class Build:
         if other:
             summary['other_files'] = other
         summary['formats'] = sorted({'eml' if r['format'] != 'mbox' else 'mbox' for r in rows})
-        summary['sent_missing'] = [{'label': r['label'], 'received': r['received']} for r in rows if r.get('sent_missing')]
+        summary['incomplete'] = [{'label': r['label'], 'messages': r['messages'], 'held': r.get('held_messages') or r['received'],
+                                  'account': 'held_messages' in r} for r in rows if r.get('sent_missing') or 'held_messages' in r]
         return summary
 
     def alt_summary(self, rows, parts):
@@ -720,7 +730,7 @@ class Build:
         stages = cfg.get('stages')
         if stages:
             names = [item['name'] for item in stages['items']]
-            thresholds = stages['thresholds'] or T.default_thresholds(len(names))
+            thresholds = stages['thresholds'] or [k for k in T.default_thresholds(len(names)) if k <= len(names)]
             levels = []
             for k in thresholds:
                 chosen = [key for key, info in projects.items() if len(info['stages']) >= k]

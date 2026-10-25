@@ -82,7 +82,7 @@ The images, `index.private.json` and `calibration.private/` stay on the machine 
 ## Method notes
 
 - Sizes are decimal GB (10^9 bytes); GiB appears only in the headline and in "Files as held".
-- Every file and every archive member is hashed with SHA-256, streamed, without a size cap. Credential and key files are identified by extension and file name only; they are counted by size and are neither opened nor hashed.
+- Every file and every archive member is hashed with SHA-256, streamed, without a size cap. Credential and key files are identified by extension and file name only; they are counted by size, never parsed or kept, and only their SHA-256 checksum is recorded (in the private cache).
 - Content category comes from the extension, except PDF (text layer of the first page, first three pages inside archives), files with archive signatures and no known extension, and `.json` / `.csv` files inside a mailbox folder, which are per-message metadata.
 - Compressed archives: zip, tar, gz, tgz, bz2, xz through Python; 7z, rar, arj, cab and multi-part sets through the first of `7zz`, `7z`, `bsdtar`, `unar` found on PATH. Nesting goes up to depth 5. An archive stops at 20 GB expanded or 200 times expansion. Member paths that are absolute or contain `..` are rejected. Nothing is executed. Archives without a usable tool are counted as not unpacked, with the reason.
 - New content: an archive member whose hash matches no loose file and no earlier member; nested archives whose contents are counted are not new content.

@@ -27,7 +27,7 @@ import spec_content
 from spec_taxonomy import ARCHIVE_EXTENSIONS, CATEGORY_OF_EXTENSION, is_credential_name, raw_extension
 
 DEFAULT_LIMITS = {'max_expanded_bytes': 20 * 10 ** 9, 'max_ratio': 200, 'max_depth': 5,
-                  'member_parse_bytes': 256 * 1024 * 1024, 'ratio_floor_bytes': 64 * 1024 * 1024}
+                  'member_parse_bytes': 128 * 1024 * 1024, 'ratio_floor_bytes': 64 * 1024 * 1024}
 EXTERNAL_TOOLS = ('7zz', '7z', 'bsdtar', 'unar')
 CHAINS = {'7z': ('7zz', '7z', 'bsdtar', 'unar'), 'rar': ('7zz', '7z', 'unar', 'bsdtar'), 'arj': ('7zz', '7z', 'unar'),
           'cab': ('7zz', '7z', 'bsdtar', 'unar'), 'other': ('7zz', '7z', 'unar'), 'zip': ('7zz', '7z', 'bsdtar', 'unar'),
@@ -155,6 +155,19 @@ class Reader:
         handle.write(prefix_data)
         return handle
 
+    def hash_only(self, stream):
+        """SHA-256 and size of a stream; the bytes are neither parsed nor kept."""
+        digest = hashlib.sha256()
+        total = 0
+        while True:
+            self.check_time()
+            block = stream.read(CHUNK)
+            if not block:
+                return digest.hexdigest(), total
+            digest.update(block)
+            total += len(block)
+            self.charge(len(block))
+
     def read_member(self, stream, need_file):
         """Stream a member once. Returns (sha256, size, bytes or None, spool path or None)."""
         digest = hashlib.sha256()
@@ -195,7 +208,9 @@ class Reader:
             self.hidden += 1
             return
         if is_credential_name(name):
-            self.members.append({'n': label, 'x': extension, 's': int(declared_size or 0), 'h': None, 'cred': True})
+            with opener() as stream:
+                sha, size = self.hash_only(stream)
+            self.members.append({'n': label, 'x': extension, 's': size, 'h': sha, 'cred': True})
             return
         likely_nested = extension in ARCHIVE_EXTENSIONS and depth < self.limits['max_depth']
         need_file = likely_nested or extension in ('pdf', 'tif', 'tiff') or extension not in CATEGORY_OF_EXTENSION
@@ -294,10 +309,7 @@ class Reader:
                 if info.is_dir():
                     continue
                 name = info.filename
-                if unsafe_name(name):
-                    self.lose(); damaged = True
-                    continue
-                if info.flag_bits & 1:
+                if unsafe_name(name) or info.flag_bits & 1:
                     self.lose(); damaged = True
                     continue
                 try:
@@ -306,8 +318,8 @@ class Reader:
                     self.lose(); damaged = True
         finally:
             archive.close()
-            if damaged:
-                self.partly += 1
+        if damaged:
+            self.partly += 1
         return True
 
     # ------------------------------------------------------------------ tar and single-file compression
@@ -342,8 +354,8 @@ class Reader:
                     break
         finally:
             archive.close()
-            if damaged:
-                self.partly += 1
+        if damaged:
+            self.partly += 1
         return True
 
     def read_single(self, kind, name, stream, depth, prefix):
@@ -451,15 +463,12 @@ class Reader:
                     raise CapReached('expanded size cap')
                 if shutil.disk_usage(folder).free < declared * 1.1 + 1024 * 1024:
                     return 'space'
-                wanted, secret, unsafe = [], [], 0
-                encrypted = 0
+                wanted, unsafe, encrypted = [], 0, 0
                 for entry in files:
                     if unsafe_name(entry['path']):
                         unsafe += 1
                     elif entry['encrypted']:
                         encrypted += 1
-                    elif is_credential_name(entry['path']):
-                        secret.append(entry)
                     else:
                         wanted.append(entry)
                 if wanted:
@@ -469,8 +478,6 @@ class Reader:
                     self.run_guarded([executable, 'x', '-y', '-bd', '-spd', '-scsUTF-8', '-aoa', '-o' + destination, target, '@' + list_file],
                                      folder, environment, destination, self.allowance())
                 self.lose(unsafe + encrypted)
-                for entry in secret:
-                    self.members.append({'n': clean(prefix + entry['path']), 'x': raw_extension(entry['path']), 's': entry['size'], 'h': None, 'cred': True})
                 problems = unsafe + encrypted
             elif tool == 'bsdtar':
                 code = self.run_guarded([executable, '-xf', target, '-C', destination, '--no-same-owner', '--no-same-permissions'],
@@ -492,7 +499,7 @@ class Reader:
         found = self.walk_extracted(destination, depth, prefix)
         if listed is not None:
             expected = len([entry for entry in listed if not entry['dir'] and not entry['link'] and not unsafe_name(entry['path'])
-                            and not entry['encrypted'] and not is_credential_name(entry['path'])])
+                            and not entry['encrypted']])
             missing = max(0, expected - found)
             self.lose(missing)
             problems += missing
@@ -520,12 +527,13 @@ class Reader:
                 if stat.S_ISDIR(info.st_mode):
                     stack.append(entry.path)
                 elif stat.S_ISREG(info.st_mode):
-                    if is_credential_name(entry.name):
-                        self.members.append({'n': clean(prefix + relative), 'x': raw_extension(entry.name), 's': info.st_size, 'h': None, 'cred': True})
-                        os.unlink(entry.path)
-                        found += 1
-                        continue
                     found += 1
+                    if is_credential_name(entry.name):
+                        with open(entry.path, 'rb') as handle:
+                            sha, size = self.hash_only(handle)
+                        self.members.append({'n': clean(prefix + relative), 'x': raw_extension(entry.name), 's': size, 'h': sha, 'cred': True})
+                        os.unlink(entry.path)
+                        continue
                     self.add_member(relative, info.st_size, lambda path=entry.path: open(path, 'rb'), depth, prefix)
                     try:
                         os.unlink(entry.path)

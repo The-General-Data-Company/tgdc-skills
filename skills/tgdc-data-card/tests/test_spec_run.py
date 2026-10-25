@@ -61,6 +61,7 @@ class SpecRunTests(unittest.TestCase):
         self.assertEqual(spec['totals']['held_bytes'], sum(f['size'] for f in fx.files))
         self.assertEqual(spec['totals']['hashed_files'], sum(1 for e in all_items if e[3]))
         self.assertEqual(spec['totals']['unique_contents'], len({e[3] for e in all_items if e[3]}))
+        self.assertEqual(spec['totals']['hashed_files'], spec['totals']['files'])      # credential files are checksummed too
         for key, part in [('file_archive', 'file'), ('mailboxes', 'mailbox'), ('alternative_exports', 'alt'), ('export_logs', 'log')]:
             chosen = [f for f in fx.files if f['part'] == part]
             self.assertEqual(spec['parts'][key]['files'], len(chosen), key)
@@ -72,7 +73,7 @@ class SpecRunTests(unittest.TestCase):
         new = [m for m in members if m['new'] and not m['container']]
         self.assertEqual((archive['new_files'], archive['new_bytes']), (len(new), sum(m['size'] for m in new)))
         self.assertEqual(spec['parts']['held_without_archives']['files'], len(fx.files))
-        self.assertEqual(spec['parts']['mailboxes']['messages'], 12)
+        self.assertEqual(spec['parts']['mailboxes']['messages'], 17)
 
     def test_categories_unique_counts_and_main_formats(self):
         stats = defaultdict(lambda: {'files': 0, 'bytes': 0, 'unique': set(), 'af': 0, 'ab': 0, 'ext': Counter()})
@@ -91,15 +92,12 @@ class SpecRunTests(unittest.TestCase):
         for row in self.spec['categories']:
             expected = stats[row['name']]
             self.assertEqual((row['files'], row['bytes'], row['archive_files'], row['archive_bytes']), (expected['files'], expected['bytes'], expected['af'], expected['ab']), row['name'])
-            if row['name'] == T.CREDENTIALS:
-                self.assertNotIn('unique', row)
-            else:
-                self.assertEqual(row['unique'], len(expected['unique']), row['name'])
+            self.assertEqual(row['unique'], len(expected['unique']), row['name'])
             ranked = [label for label, _ in sorted(expected['ext'].items(), key=lambda i: (-i[1], i[0]))[:6]]
             self.assertEqual(row['formats'], ranked, row['name'])
         self.assertEqual(sum(1 for c in self.spec['categories'] if c['name'] == T.CREDENTIALS), 1)
         credentials = next(c for c in self.spec['categories'] if c['name'] == T.CREDENTIALS)
-        self.assertEqual(credentials['files'], 3)       # two loose files and one archive member, never opened
+        self.assertEqual(credentials['files'], 4)       # three loose files and one archive member: checksum only, never parsed
         self.assertEqual(credentials['archive_files'], 1)
 
     def test_formats_table_groups_irregular_and_ranks_by_volume(self):
@@ -145,7 +143,7 @@ class SpecRunTests(unittest.TestCase):
 
     def test_mailboxes(self):
         rows = {row['label']: row for row in self.spec['mailboxes']}
-        one, two = rows['Mailbox 1 (owner, Gmail)'], rows['Mailbox 2 (co-owner, Yahoo)']
+        one, two, three = rows['Mailbox 1 (owner, Gmail)'], rows['Mailbox 2 (co-owner, Yahoo)'], rows['Mailbox 3 (company, Gmail)']
         box1 = [f for f in self.fx.files if f['rel'].startswith('Mail/Box1/')]
         business = [f for f in box1 if f['part'] == 'mailbox']
         self.assertEqual((one['messages'], one['files'], one['bytes']), (8, len(business), sum(f['size'] for f in business)))
@@ -166,10 +164,16 @@ class SpecRunTests(unittest.TestCase):
         self.assertNotIn('metadata', two)
         self.assertEqual([(a['kind'], a['files']) for a in two['alternatives']], [('attachments', 2)])
         summary = self.spec['parts']
-        self.assertEqual(summary['mailboxes']['sent_missing'], [{'label': 'Mailbox 2 (co-owner, Yahoo)', 'received': 4}])
+        self.assertEqual(summary['mailboxes']['incomplete'], [{'label': 'Mailbox 2 (co-owner, Yahoo)', 'messages': 4, 'held': 4, 'account': False},
+                                                              {'label': 'Mailbox 3 (company, Gmail)', 'messages': 5, 'held': 3, 'account': True}])
+        # the .mbox holds the whole account (three received messages as .eml files plus two sent messages): same messages, plus the sent ones
+        self.assertEqual((three['messages'], three['held_messages'], three['period'], three['format']), (5, 3, [2022, 2025], 'eml'))
+        self.assertEqual((three['sent'], three['received'], three['sent_missing']), (2, 3, False))
+        self.assertEqual([(a['kind'], a['files']) for a in three['alternatives']], [('mbox', 1)])
+        self.assertNotIn('held_messages', one)
         self.assertEqual(summary['mailboxes']['metadata_files'], 9)
         self.assertEqual({i['kind']: i['files'] for i in summary['alternative_exports']['items']},
-                         {'mbox': 1, 'attachments': 5, 'bodies': 3, 'archive': 1})
+                         {'mbox': 2, 'attachments': 5, 'bodies': 3, 'archive': 1})
         self.assertEqual(self.spec['periods']['email'], [2021, 2025])
 
     def test_languages(self):
@@ -181,6 +185,8 @@ class SpecRunTests(unittest.TestCase):
         for m in self.fx.members:
             if m['lang'] != '-' and m['new'] and not m['container']:
                 examined.append((m['lang'], m['size'], False))
+        for extra in self.fx.extra_messages:        # sent messages that exist only inside an account .mbox
+            examined.append((extra['lang'], extra['size'], True))
         for lang, size, message in examined:
             groups[lang][0] += 1
             groups[lang][1] += size
@@ -189,7 +195,8 @@ class SpecRunTests(unittest.TestCase):
         rows = {r['code']: r for r in languages['rows']}
         self.assertEqual(sorted(rows), ['en', 'ro'])
         for code in ('en', 'ro'):
-            self.assertEqual([rows[code]['files'], rows[code]['bytes'], rows[code]['messages']], groups[code], code)
+            self.assertEqual([rows[code]['files'], rows[code]['messages']], [groups[code][0], groups[code][2]], code)
+            self.assertAlmostEqual(rows[code]['bytes'], groups[code][1], delta=64, msg=code)      # message sizes inside an .mbox differ by a few bytes
         self.assertEqual([r['code'] for r in languages['rows']], sorted(rows, key=lambda c: -rows[c]['files']))
         self.assertEqual(languages['other']['files'], groups['de'][0])          # German is the main language of two files only
         self.assertEqual(languages['other']['messages'], 2)
@@ -279,7 +286,7 @@ class SpecRunTests(unittest.TestCase):
         method = self.spec['methodology']
         self.assertEqual((method['hidden_entries'], method['credential_folders'], method['symlinks']), (2, 1, 1))
         self.assertEqual((method['unreadable_files'], method['time_limited_files']), (0, 0))
-        self.assertEqual(method['unchecked_pdfs'], {'files': 0, 'bytes': 0})
+        self.assertEqual(method['unchecked_pdfs'], {'files': 0, 'bytes': 0, 'mailbox_attachments': {'files': 0, 'bytes': 0}})
         self.assertEqual(self.spec['schema'], 'tgdc-format-spec/1.0')
         self.assertEqual(self.spec['company'], 'Synthetic Works SRL')
 

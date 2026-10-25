@@ -17,11 +17,11 @@ import spec_samples as S
 import spec_taxonomy as T
 
 PRIVATE_TOKENS = ['Northfield', 'Southbank', '01 Tender documents', '02 Drawings', '03 Contract', '04 Acceptance',
-                  'tender notice', 'overview rev', 'wiring schematic', 'site layout', 'pipe layout', 'parola cont', 'Parole.xlsx', 'keystore',
+                  'tender notice', 'overview rev', 'wiring schematic', 'site layout', 'pipe layout', 'parola cont', 'parola conturi', 'Parole.xlsx', 'keystore',
                   'old note', 'oldformat', 'secretproject', 'client-acme', 'acme', 'zzq', 'Box1', 'Box2', 'ann@synthetic.test', 'bob@synthetic.test',
-                  'owner@synthetic.test', 'co@synthetic.test', 'Water network plan', 'Antreprenorul', 'contractor shall',
+                  'owner@synthetic.test', 'co@synthetic.test', 'acct@synthetic.test', 'Box3', 'Account one', 'Water network plan', 'Antreprenorul', 'contractor shall',
                   'Auftragnehmer', 'Misc', 'Paper archive', 'run_export', 'contacts', 'split.zip']
-OWNER, COOWNER = 'owner@synthetic.test', 'co@synthetic.test'
+OWNER, COOWNER, ACCOUNT = 'owner@synthetic.test', 'co@synthetic.test', 'acct@synthetic.test'
 
 
 def sha(data):
@@ -45,6 +45,7 @@ class Fixture:
         self.partly = 0
         self.not_opened = {}
         self.messages = {}    # mailbox label -> list of dicts
+        self.extra_messages = []   # messages held only inside an account .mbox
         self.sheets = {}      # sha -> dict(sheets by size label, dedicated flag, location, schematic)
         self.build()
 
@@ -59,7 +60,7 @@ class Fixture:
         if label is None:
             suffix = Path(name).suffix[1:].lower()
             label = suffix or '(no extension)'
-        item = dict(rel=rel, size=len(data), sha=None if cred else sha(data), category=category, part=part, year=year, label=label,
+        item = dict(rel=rel, size=len(data), sha=sha(data), category=category, part=part, year=year, label=label,
                     lang=lang, message=message, cad=cad, doc=doc, cred=cred)
         self.files.append(item)
         if sheets:
@@ -77,7 +78,7 @@ class Fixture:
 
     def member(self, archive, name, data, category, new, label=None, lang='-', container=False, cad=False, cred=False, sheets=None, loc='archive'):
         suffix = Path(name).suffix[1:].lower()
-        self.members.append(dict(archive=archive, name=name, size=len(data), sha=None if cred else sha(data), category=category,
+        self.members.append(dict(archive=archive, name=name, size=len(data), sha=sha(data), category=category,
                                  label=label or suffix or '(no extension)', new=new, lang=lang, container=container, cad=cad, cred=cred))
         if sheets:
             self.sheet(data, sheets, False, loc)
@@ -127,6 +128,7 @@ class Fixture:
         self.unreliable_files.append(self.files[-1])
         self.put(misc + 'oldformat.doc', S.ole_doc_bytes(S.EN * 2 + ' Legacy.'), D, year=2012, lang='en', doc=True)
         self.put(misc + 'parola cont.txt', b'top secret value', T.CREDENTIALS, year=2023, cred=True, label='txt')
+        self.put(misc + 'parola conturi.docx', S.docx_bytes(S.RO * 3 + ' Secret list.', 2020), T.CREDENTIALS, year=2023, cred=True, label='docx')   # named like a password file: checksum only, never read as a document
         self.put(misc + 'keystore.p12', b'\x30\x82binary', T.CREDENTIALS, year=2023, cred=True)
         self.put(misc + 'photo1.jpg', b'\xff\xd8\xff\xe0' + b'jpeg bytes one' * 5, T.PHOTOS, year=2017)
         self.put(misc + 'photo2.png', S.png_bytes(2), T.PHOTOS, year=2017)
@@ -274,10 +276,36 @@ class Fixture:
         self.put(box2 + 'attachments/detail.pdf', detail, D, part='alt', sheets={'A1': 1}, loc='mail')
         self.put(box2 + 'attachments/layout2.dxf', layout2, T.CAD, part='alt', cad=True)
         self.messages['Mailbox 2 (co-owner, Yahoo)'] = rows2
+        # third mailbox: three received messages as .eml files and an .mbox holding the whole account, sent messages included
+        box3 = 'Mail/Box3/'
+        received = [('Account one', 'Ann <ann@synthetic.test>', S.EN * 2 + ' R1.', 2022, 'en'), ('Account two', 'Bob <bob@synthetic.test>', S.EN * 2 + ' R2.', 2023, 'en'),
+                    ('Account three', 'Ann <ann@synthetic.test>', S.RO * 2 + ' R3.', 2023, 'ro')]
+        sent = [('Account sent one', 'Bob <bob@synthetic.test>', S.EN * 2 + ' S1.', 2024, 'en'), ('Account sent two', 'Ann <ann@synthetic.test>', S.RO * 2 + ' S2.', 2025, 'ro')]
+        rows3, account = [], []
+        for number, (subject, sender, body, year, lang) in enumerate(received, 1):
+            data = S.eml_bytes(subject, sender, ACCOUNT, body, year=year, delivered_to=ACCOUNT)
+            account.append(data)
+            self.put(f'{box3}r{number}.eml', data, EM, part='mailbox', lang=lang, message=True, label='eml', year=year)
+            rows3.append(dict(year=year, lang=lang, sent=False))
+        for subject, recipient, body, year, lang in sent:
+            data = S.eml_bytes(subject, ACCOUNT, recipient, body, year=year)
+            account.append(data)
+            rows3.append(dict(year=year, lang=lang, sent=True))
+            self.extra_messages.append(dict(lang=lang, year=year, size=len(data)))
+        box = mailbox.mbox(str(self.base / 'tmp3.mbox'))
+        for data in account:
+            box.add(data)
+        box.flush()
+        box.close()
+        account_bytes = (self.base / 'tmp3.mbox').read_bytes()
+        (self.base / 'tmp3.mbox').unlink()
+        self.put(box3 + 'account.mbox', account_bytes, EM, part='alt', label='mbox')
+        self.messages['Mailbox 3 (company, Gmail)'] = rows3
         self.config = {
             'company': 'Synthetic Works SRL', 'sector_line': 'Construction contractor (water, sewerage)', 'month': 'October 2026',
             'mailboxes': [{'root': str(self.data / 'Mail/Box1'), 'label': 'Mailbox 1 (owner, Gmail)'},
-                          {'root': str(self.data / 'Mail/Box2'), 'label': 'Mailbox 2 (co-owner, Yahoo)'}],
+                          {'root': str(self.data / 'Mail/Box2'), 'label': 'Mailbox 2 (co-owner, Yahoo)'},
+                          {'root': str(self.data / 'Mail/Box3'), 'label': 'Mailbox 3 (company, Gmail)'}],
             'project_roots': [str(self.data / 'Company/Projects')], 'project_depth': 1,
             'stages': {'title': 'project milestones', 'items': [
                 {'name': 'tender documents', 'patterns': ['tender']}, {'name': 'contract', 'patterns': ['contract']},

@@ -70,8 +70,9 @@ class ArchiveTests(unittest.TestCase):
         by_name = {m['n']: m for m in reader.members}
         self.assertEqual(sorted(by_name), ['Passwords.txt', 'ok.txt'])
         self.assertTrue(by_name['Passwords.txt']['cred'])
-        self.assertIsNone(by_name['Passwords.txt']['h'])
+        self.assertEqual(by_name['Passwords.txt']['h'], sha(b'top secret'))      # only a checksum; the bytes are never parsed
         self.assertEqual(by_name['Passwords.txt']['s'], len(b'top secret'))
+        self.assertNotIn('lang', by_name['Passwords.txt'])
         self.assertEqual(reader.lost, 3)          # two unsafe names and one encrypted member
         self.assertEqual(reader.partly, 1)
         self.assertEqual(reader.hidden, 1)
@@ -165,7 +166,7 @@ class ExternalToolTests(unittest.TestCase):
         by_name = {unicodedata.normalize('NFC', m['n']): m for m in reader.members}
         self.assertEqual(sorted(by_name), ['a b.txt', 'password list.txt', 'report.pdf', 'sub/Lucrări*?.txt'])
         self.assertTrue(by_name['password list.txt']['cred'])
-        self.assertIsNone(by_name['password list.txt']['h'])
+        self.assertEqual(by_name['password list.txt']['h'], sha(b'top secret'))
         self.assertEqual(by_name['report.pdf']['h'], sha(self.report))
         self.assertEqual(by_name['sub/Lucrări*?.txt']['lang']['lang'], 'ro')
         self.assertEqual((reader.lost, reader.partly), (0, 0))
