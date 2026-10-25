@@ -217,7 +217,7 @@ def extract(extension, data, limits=None):
         elif extension == 'pdf':
             from pypdf import PdfReader
             with pdf_expansion_bounds(limits['max_expanded_bytes']):
-                reader = PdfReader(io.BytesIO(data), strict=True)
+                reader = PdfReader(io.BytesIO(data), strict=False)     # real files repeat dictionary keys; bounds and deadlines still apply
                 if reader.is_encrypted:
                     return empty_result('encrypted')
                 result['pages_total'] = len(reader.pages)

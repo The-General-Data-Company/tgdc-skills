@@ -11,7 +11,9 @@ from pathlib import Path
 
 SCRIPTS = Path(__file__).resolve().parents[1] / 'scripts'
 sys.path.insert(0, str(SCRIPTS))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 from profiler import profile
+from spec_samples import pdf_with_duplicate_keys
 
 
 class ProfileTests(unittest.TestCase):
@@ -56,6 +58,13 @@ class ProfileTests(unittest.TestCase):
         self.assertGreaterEqual(result['extraction']['skipped'], 3)
         self.assertNotIn('PRIVATE_SYNTHETIC_SENTINEL', json.dumps(result))
         self.assertNotIn('secret-error-payload', json.dumps(result))
+
+    def test_a_pdf_with_a_duplicate_dictionary_key_is_not_counted_as_malformed(self):
+        (self.root / 'duplicate.pdf').write_bytes(pdf_with_duplicate_keys())
+        (self.root / 'broken.pdf').write_text('not a pdf')
+        result = profile([self.root], self.out)
+        self.assertEqual(result['extraction']['status_counts'], {'malformed': 1, 'ok': 1})
+        self.assertEqual(result['metrics']['pdf_pages_known_total']['value'], 1)
 
     def test_missing_overlapping_and_symlink_roots_rejected(self):
         child = self.root / 'child'; child.mkdir()

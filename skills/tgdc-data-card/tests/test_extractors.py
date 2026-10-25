@@ -6,7 +6,9 @@ import zipfile
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'scripts'))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 from extractors import extract, DEFAULT_LIMITS
+from spec_samples import pdf_with_duplicate_keys
 
 
 class ExtractorTests(unittest.TestCase):
@@ -54,6 +56,17 @@ class ExtractorTests(unittest.TestCase):
         writer.encrypt('synthetic-password')
         stream = io.BytesIO(); writer.write(stream)
         self.assertEqual(self.parse('pdf', stream.getvalue())['status'], 'encrypted')
+
+    def test_pdf_with_duplicate_dictionary_keys_is_read_not_rejected(self):
+        from pypdf import PdfReader
+        data = pdf_with_duplicate_keys()
+        with self.assertRaises(Exception):
+            PdfReader(io.BytesIO(data), strict=True)       # the fixture really is what strict reading refuses
+        result = self.parse('pdf', data)
+        self.assertEqual(result['status'], 'ok')
+        self.assertEqual(result['pages_total'], 1)
+        self.assertIn('Duplicate key sample', result['_text'])
+        self.assertEqual(self.parse('pdf', b'invalid')['status'], 'malformed')
 
     def test_docx_expansion_limit_and_extraction(self):
         stream = io.BytesIO()
