@@ -72,6 +72,14 @@ def _load_identifier():
     return _identifier
 
 
+def _propose(sample):
+    """Model proposal (code, score). Floating-point notices inside the scoring are harmless and are silenced; the result is unchanged."""
+    identifier = _load_identifier()
+    import numpy as np
+    with np.errstate(all='ignore'):
+        return identifier.classify(sample)
+
+
 def language_name(code):
     return NAMES.get(code, code)
 
@@ -123,7 +131,7 @@ def assess(text, minimum=True):
     if minimum and sum(char.isalpha() for char in sample) < MIN_LETTERS:
         return None, 'insufficient_text'      # also spares the model load for tiny files
     try:
-        code, score = _load_identifier().classify(sample)
+        code, score = _propose(sample)
     except ImportError:
         return None, 'dependency_missing'
     except Exception:

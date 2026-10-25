@@ -1,7 +1,10 @@
 """Language detection is proposed by py3langid and confirmed by common words or script."""
 import sys
 import unittest
+import warnings
 from pathlib import Path
+
+import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'scripts'))
 import spec_language as L
@@ -37,6 +40,24 @@ class LanguageTests(unittest.TestCase):
         self.assertIsNone(L.classify(''))
         self.assertIsNone(L.classify('xq zv kk jj hh gg ff dd ss aa ' * 20))
         self.assertIsNone(L.classify('1234 5678 9012 3456 ' * 40))
+
+    def test_floating_point_notices_inside_the_model_neither_warn_nor_change_the_result(self):
+        class Noisy:
+            def classify(self, text):
+                np.float32(1e-30) * np.float32(1e-30)      # underflow
+                np.float32(1e30) * np.float32(1e30)        # overflow
+                np.float32(1.0) / np.float32(0.0)          # division by zero
+                return 'en', 0.99
+        expected = L.classify(EN * 2)
+        original = L._identifier
+        try:
+            L._identifier = Noisy()
+            for handling in ('warn', 'raise'):
+                with self.subTest(handling=handling), warnings.catch_warnings(), np.errstate(all=handling):
+                    warnings.simplefilter('error')
+                    self.assertEqual(L.assess(EN * 2), (expected, 'confirmed'))
+        finally:
+            L._identifier = original
 
     def test_assess_gives_the_reason_a_text_has_no_language(self):
         self.assertEqual(L.assess(EN * 2), ('en', 'confirmed'))
