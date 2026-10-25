@@ -19,8 +19,13 @@ fi
 
 name="tgdc-data-card-v$version.tar.gz"
 mkdir -p dist
-# git archive stamps every entry with the commit time and gzip -n omits its own timestamp, so the same commit gives the same bytes.
-git archive --format=tar --prefix=tgdc-data-card/ "HEAD:$skill" | gzip -n -9 > "dist/$name"
+# Every entry is stamped with the commit time (--mtime needs Git 2.38 or newer) and gzip -n omits its own timestamp,
+# so the same commit gives the same bytes.
+stamp=$(git log -1 --format=%cI HEAD)
+if ! git archive --format=tar --mtime="$stamp" --prefix=tgdc-data-card/ "HEAD:$skill" | gzip -n -9 > "dist/$name"; then
+  echo "git archive failed; Git 2.38 or newer is required." >&2
+  exit 1
+fi
 cd dist
 if command -v shasum >/dev/null 2>&1; then
   shasum -a 256 "$name" > SHA256SUMS
