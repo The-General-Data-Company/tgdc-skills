@@ -59,6 +59,17 @@ class LanguageTests(unittest.TestCase):
         finally:
             L._identifier = original
 
+    def test_tiny_text_is_rejected_before_the_model_is_loaded(self):
+        def refuse():
+            raise AssertionError('the model was loaded')
+        original = L._load_identifier
+        try:
+            L._load_identifier = refuse
+            self.assertEqual(L.assess('ok'), (None, 'insufficient_text'))
+            self.assertEqual(L.assess(' \n '), (None, 'insufficient_text'))
+        finally:
+            L._load_identifier = original
+
     def test_assess_gives_the_reason_a_text_has_no_language(self):
         self.assertEqual(L.assess(EN * 2), ('en', 'confirmed'))
         self.assertEqual(L.assess('ok'), (None, 'insufficient_text'))
