@@ -14,7 +14,7 @@ class TaxonomyTests(unittest.TestCase):
         self.assertEqual(T.CATEGORIES[1], 'Scanned documents (image-only PDF, TIFF)')
         self.assertEqual(T.CATEGORIES[7], 'E-mail messages and mailbox files (incl. per-message metadata)')
         self.assertEqual(T.CATEGORIES[8], 'E-signed document packages (CAdES .p7s / .p7m)')
-        self.assertEqual(T.CATEGORIES[11], 'Credential and key files: certificates, key stores, password files (counted, not opened)')
+        self.assertEqual(T.CATEGORIES[11], 'Credential and key files: certificates, key stores, password files (counted, never parsed)')
         self.assertEqual(T.CATEGORIES[-1], 'Other formats')
         self.assertEqual(T.short_category(T.CATEGORIES[11]), 'Credential and key files: certificates, key stores, password files')
         self.assertEqual(T.short_category(T.CATEGORIES[0]), 'Documents')
