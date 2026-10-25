@@ -1,0 +1,7 @@
+name: repo-guard
+on: push
+permissions:
+  contents: read
+jobs:
+  guard:
+    uses: The-General-Data-Company/.github/.github/workflows/repo-guard.yml@main
