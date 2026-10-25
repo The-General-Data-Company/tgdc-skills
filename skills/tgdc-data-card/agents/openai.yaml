@@ -1,6 +1,6 @@
 interface:
   display_name: "TGDC Data Card"
-  short_description: "Profile selected local files and create a reviewable PDF data card"
+  short_description: "Profile selected local files and create a reviewable PDF data card with a data format specification"
   default_prompt: "Create a TGDC Data Card. The files to profile are: <absolute path>. Put the report in: <absolute path to a separate folder>"
 policy:
   allow_implicit_invocation: false

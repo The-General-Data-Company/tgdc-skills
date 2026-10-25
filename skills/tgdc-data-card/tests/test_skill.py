@@ -1,6 +1,7 @@
 """Skill folder checks: catalog shape and the profile and render commands run from the folder."""
 import hashlib
 import json
+import re
 import stat
 import subprocess
 import sys
@@ -35,11 +36,44 @@ class SkillTests(unittest.TestCase):
         self.assertIn('target catalog', guide)
         self.assertIn('not implemented', guide)
 
+    def partner_facing_files(self):
+        files = [ROOT / 'SKILL.md', ROOT / 'agents/openai.yaml', ROOT / 'references/field-guide.md', ROOT / 'references/format-spec.md',
+                 ROOT / 'references/privacy.md', ROOT / 'references/field-catalog.json', ROOT / 'assets/README.md']
+        files += sorted(SCRIPTS.glob('*.py')) + sorted((ROOT / 'assets/examples').glob('*.json'))
+        return files
+
+    def test_partner_facing_wording_rules(self):
+        forbidden = re.compile(r'\blabs?\b|buyer|resale|resell|licens|marketplace|monetiz|training|reinforcement|\brl\b|rollout|pass ?rate', re.I)
+        contraction = re.compile(r"\b(?:don't|doesn't|can't|won't|isn't|aren't|it's|that's|there's|we're|you're|they're|didn't|wasn't|couldn't|shouldn't|wouldn't|hasn't|haven't|let's)\b", re.I)
+        traces = re.compile('|'.join(['cla' + 'ude', 'co' + 'dex', 'anthro' + 'pic', 'generated' + ' by', 'chat' + 'gpt']), re.I)
+        texts = {path: path.read_text(encoding='utf-8') for path in self.partner_facing_files()}
+        readme = ROOT.parents[1] / 'README.md'
+        if readme.is_file():
+            text = readme.read_text(encoding='utf-8')
+            texts[readme] = text[text.index('## tgdc-data-card'):text.index('## Security')]
+        for path, text in texts.items():
+            for number, line in enumerate(text.splitlines(), 1):
+                if line.startswith('license:') or 'Apache License' in line or 'Open Font License' in line or 'Official license:' in line:
+                    continue
+                rules = (('wording', forbidden), ('contraction', contraction)) + (() if path == readme else (('trace', traces),))
+                for rule, pattern in rules:      # the README names the agents it installs into; the skill folder never does
+                    self.assertIsNone(pattern.search(line), f'{rule} in {path.name}:{number}')
+            self.assertNotIn('\u2013', text, path.name)
+            self.assertNotIn('\u2014', text, path.name)
+        for path in (ROOT / 'tests').glob('*.py'):
+            body = path.read_text(encoding='utf-8')
+            self.assertNotIn('\u2013', body, path.name)
+            self.assertNotIn('\u2014', body, path.name)
+
     def test_skill_metadata_matches_folder_name(self):
         text = (ROOT / 'SKILL.md').read_text()
         self.assertTrue(text.startswith('---\nname: tgdc-data-card\n'))
         self.assertEqual(ROOT.name, 'tgdc-data-card')
         self.assertTrue((ROOT / 'LICENSE.txt').is_file())
+        self.assertIn('  version: "1.1.0"', text)
+        self.assertEqual(len([line for line in text.splitlines() if re.match(r'^\d\. \*\*', line)]), 8)
+        for name in ('references/format-spec.md', 'references/privacy.md', 'references/field-guide.md'):
+            self.assertIn(name, text)
 
     def test_actual_profile_and_render_from_skill_folder(self):
         selected = self.base / 'selected'; selected.mkdir()
