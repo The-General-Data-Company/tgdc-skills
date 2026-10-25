@@ -541,7 +541,7 @@ class Build:
             row['format'] = 'eml' if 'eml' in kinds and 'mbox' not in kinds else ('mbox' if kinds == {'mbox'} else 'eml+mbox')
             meta = Counter(r.ext for r in business if r.mclass == 'meta')
             if meta:
-                row['metadata'] = {'files': sum(meta.values()), 'extensions': top_formats(meta)}
+                row['metadata'] = {'files': sum(meta.values()), 'extensions': top_formats(meta), 'counts': dict(sorted(meta.items()))}
             other = sum(1 for r in business if r.mclass == 'other')
             if other:
                 row['other_files'] = other
@@ -576,8 +576,7 @@ class Build:
         if meta:
             counter = Counter()
             for r in rows:
-                for ext in r.get('metadata', {}).get('extensions', ()):
-                    counter[ext] += 1
+                counter.update(r.get('metadata', {}).get('counts', {}))
             summary['metadata_files'] = meta
             summary['metadata_extensions'] = top_formats(counter)
         other = sum(r.get('other_files', 0) for r in rows)

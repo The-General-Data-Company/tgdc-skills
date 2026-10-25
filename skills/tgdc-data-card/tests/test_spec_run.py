@@ -150,7 +150,7 @@ class SpecRunTests(unittest.TestCase):
         self.assertEqual((one['messages'], one['files'], one['bytes']), (8, len(business), sum(f['size'] for f in business)))
         self.assertEqual(one['period'], [2021, 2024])
         self.assertEqual(one['format'], 'eml')
-        self.assertEqual(one['metadata'], {'files': 9, 'extensions': ['json', 'csv']})
+        self.assertEqual(one['metadata'], {'files': 9, 'extensions': ['json', 'csv'], 'counts': {'csv': 1, 'json': 8}})
         self.assertEqual(one['other_files'], 1)
         self.assertEqual((one['sent'], one['received'], one['sent_missing']), (2, 6, False))
         kinds = {a['kind']: a for a in one['alternatives']}

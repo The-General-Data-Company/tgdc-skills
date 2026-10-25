@@ -207,12 +207,25 @@ def gibibytes(byte_count):
 
 
 def size_text(byte_count):
-    """Compact size: GB from 0.1 GB, otherwise MB or KB (one decimal)."""
+    """Compact size: GB from 0.1 GB, MB from 0.1 MB, then KB or bytes."""
     if byte_count >= 1e8:
         return f'{byte_count / 1e9:,.1f} GB'
     if byte_count >= 1e5:
         return f'{byte_count / 1e6:,.1f} MB'
-    return f'{byte_count / 1e3:,.1f} KB'
+    if byte_count >= 1e3:
+        return f'{byte_count / 1e3:,.1f} KB'
+    return f'{int(byte_count)} bytes'
+
+
+def binary_text(byte_count):
+    """Binary size for the headline: GiB from 0.1 GiB, then MiB, KiB or bytes."""
+    if byte_count >= 2 ** 30 / 10:
+        return f'{byte_count / 2 ** 30:,.1f} GiB'
+    if byte_count >= 2 ** 20 / 10:
+        return f'{byte_count / 2 ** 20:,.1f} MiB'
+    if byte_count >= 1024:
+        return f'{byte_count / 1024:,.1f} KiB'
+    return f'{int(byte_count)} bytes'
 
 
 def round_to(value, step):

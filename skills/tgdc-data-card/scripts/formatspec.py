@@ -598,6 +598,12 @@ class Progress:
                   f'elapsed {format_duration(elapsed)}{eta}', file=self.stream, flush=True)
 
 
+def check_dependencies():
+    """Fail early and clearly when a pinned library is missing, instead of reporting every PDF as unchecked."""
+    for name in ('pypdfium2', 'PIL', 'olefile', 'py3langid'):
+        __import__(name)
+
+
 def default_workers():
     return max(1, min(8, (os.cpu_count() or 2) - 1 or 1))
 
@@ -606,12 +612,12 @@ def run_spec(sources, output, config=None, workers=None, limits=None, tools=None
     """Read every selected file and write spec.json and the private cache into the output folder."""
     from spec_aggregate import aggregate
     require_supported_platform()
+    check_dependencies()
     stream = log if log is not None else sys.stderr
     roots, output = prepare_roots(sources, output)
     cfg = validate_config(config, roots)
     settings = {**SETTINGS_DEFAULTS}
     for key, value in {**cfg['limits'], **(limits or {})}.items():
-        key = {'max_archive_bytes': 'max_archive_bytes', 'max_archive_ratio': 'max_archive_ratio'}.get(key, key)
         if key in settings and value is not None:
             settings[key] = type(SETTINGS_DEFAULTS[key])(value)
     settings['tools'] = spec_archives.probe_tools() if tools is None else dict(tools)

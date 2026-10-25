@@ -27,6 +27,7 @@ BLUE = colors.HexColor('#4C90F0')
 RULE = colors.HexColor('#303030')
 WIDTH = A4[0] - 72
 CONTACT = 'levin@thegeneraldata.com'
+PRODUCER = 'The General Data Company'
 METRICS = {
     'selected_files': 'Selected files', 'selected_bytes': 'Selected size',
     'documents_processed': 'Successfully parsed files',
@@ -383,13 +384,16 @@ def _methodology(profile):
     return story
 
 
-def render(profile_path, answers_path, output_path):
-    """Validate first and atomically replace only a successfully built PDF."""
+def render(profile_path, answers_path, output_path, spec_path=None):
+    """Validate first and atomically replace only a successfully built PDF.
+
+    With a specification file the data format specification pages follow the card pages."""
     from profiler import checked_path, output_directory, verify_output_directory, require_supported_platform
     require_supported_platform()
     profile_path, answers_path, output = map(Path, (profile_path, answers_path, output_path))
     output = checked_path(output)
-    if output.resolve() in (profile_path.resolve(), answers_path.resolve()):
+    inputs = [profile_path.resolve(), answers_path.resolve()] + ([Path(spec_path).resolve()] if spec_path else [])
+    if output.resolve() in inputs:
         raise ValueError('Output must differ from input files.')
     if output.is_symlink() or any(parent.is_symlink() for parent in output.parents):
         raise ValueError('Symlink output is not permitted.')
@@ -397,6 +401,9 @@ def render(profile_path, answers_path, output_path):
     _validate(profile, answers)
     _fonts()
     story = _overview(profile, answers) + [PageBreak()] + _coverage(profile) + [PageBreak()] + _context(profile, answers) + [PageBreak()] + _methodology(profile)
+    if spec_path:
+        from spec_report import spec_story
+        story += spec_story(_load(spec_path))
     directory = output_directory(output.parent)
     temporary = '.tgdc-card-' + uuid.uuid4().hex + '.pdf'
     created = False
@@ -405,7 +412,7 @@ def render(profile_path, answers_path, output_path):
         descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600, dir_fd=directory)
         created = True
         with os.fdopen(descriptor, 'wb') as stream:
-            document = SimpleDocTemplate(stream, pagesize=A4, leftMargin=36, rightMargin=36, topMargin=96, bottomMargin=68, title='TGDC Enterprise Data Card', author='TGDC', subject='Selected scope evidence and provider declarations', creator='TGDC Data Card')
+            document = SimpleDocTemplate(stream, pagesize=A4, leftMargin=36, rightMargin=36, topMargin=96, bottomMargin=68, title='TGDC Enterprise Data Card', author='TGDC', subject='Selected scope evidence and provider declarations', creator='TGDC Data Card', producer=PRODUCER)
             document.build(story, onFirstPage=_header_footer, onLaterPages=_header_footer)
         verify_output_directory(output.parent, directory)
         os.replace(temporary, output.name, src_dir_fd=directory, dst_dir_fd=directory)

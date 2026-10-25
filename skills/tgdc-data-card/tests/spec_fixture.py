@@ -16,11 +16,11 @@ from pathlib import Path
 import spec_samples as S
 import spec_taxonomy as T
 
-PRIVATE_TOKENS = ['Alpha', 'Beta', '01 Tender documents', '02 Drawings', '03 Contract', '04 Acceptance',
-                  'tender notice', 'overview rev', 'wiring schematic', 'site layout', 'pipe layout', 'passwords', 'keystore',
-                  'old note', 'legacy', 'secretproject', 'Box1', 'Box2', 'ann@synthetic.test', 'bob@synthetic.test',
+PRIVATE_TOKENS = ['Northfield', 'Southbank', '01 Tender documents', '02 Drawings', '03 Contract', '04 Acceptance',
+                  'tender notice', 'overview rev', 'wiring schematic', 'site layout', 'pipe layout', 'parola cont', 'Parole.xlsx', 'keystore',
+                  'old note', 'oldformat', 'secretproject', 'Box1', 'Box2', 'ann@synthetic.test', 'bob@synthetic.test',
                   'owner@synthetic.test', 'co@synthetic.test', 'Water network plan', 'Antreprenorul', 'contractor shall',
-                  'Auftragnehmer', 'Misc', 'Scans', 'run_export', 'contacts', 'split.zip']
+                  'Auftragnehmer', 'Misc', 'Paper archive', 'run_export', 'contacts', 'split.zip']
 OWNER, COOWNER = 'owner@synthetic.test', 'co@synthetic.test'
 
 
@@ -88,45 +88,45 @@ class Fixture:
         # ---- company file archive: projects
         tender = S.pdf_bytes([('text', S.A4P, 1), ('text', S.A4P, 2)], creation_year=2016)
         self.tender = tender
-        self.put('Company/Projects/Alpha/01 Tender documents/tender notice.pdf', tender, D, year=2024, lang='en', doc=True)
-        self.put('Company/Projects/Beta/01 Tender documents/tender copy.pdf', tender, D, year=2025, lang='en', doc=True)
+        self.put('Company/Projects/Northfield/01 Tender documents/tender notice.pdf', tender, D, year=2024, lang='en', doc=True)
+        self.put('Company/Projects/Southbank/01 Tender documents/tender copy.pdf', tender, D, year=2025, lang='en', doc=True)
         self.tender_years = 2016
         self.files[-1]['year'] = self.files[-2]['year'] = 2016
-        self.put('Company/Projects/Alpha/01 Tender documents/Bill of Quantities.xlsx',
+        self.put('Company/Projects/Northfield/01 Tender documents/Bill of Quantities.xlsx',
                  S.xlsx_bytes([S.EN, S.EN.replace('contractor', 'supplier')], 2018), SP, year=2024, lang='en', doc=True)
         self.files[-1]['year'] = 2018
         site = S.pdf_bytes([('text', S.A3P, 11), ('text', S.A3P, 12)])
         self.site = site
-        self.put('Company/Projects/Alpha/02 Drawings/site layout.pdf', site, D, year=2020, lang='en', doc=True, sheets={'A3': 2})
-        self.put('Company/Projects/Beta/02 Drawings/site layout.pdf', site, D, year=2020, lang='en', doc=True, sheets={'A3': 2})
-        self.put('Company/Projects/Alpha/02 Drawings/overview rev1.pdf', S.pdf_bytes([('drawing', S.A1P, 21)]), D, year=2021, lang=None, doc=True, sheets={'A1': 1})
-        self.put('Company/Projects/Alpha/02 Drawings/overview rev2.pdf', S.pdf_bytes([('drawing', S.A1P, 22)]), D, year=2021, lang=None, doc=True, sheets={'A1': 1})
-        self.put('Company/Projects/Alpha/02 Drawings/wiring schematic.pdf', S.pdf_bytes([('drawing', S.A4P, 23)]), D, year=2021, lang=None, doc=True,
+        self.put('Company/Projects/Northfield/02 Drawings/site layout.pdf', site, D, year=2020, lang='en', doc=True, sheets={'A3': 2})
+        self.put('Company/Projects/Southbank/02 Drawings/site layout.pdf', site, D, year=2020, lang='en', doc=True, sheets={'A3': 2})
+        self.put('Company/Projects/Northfield/02 Drawings/overview rev1.pdf', S.pdf_bytes([('drawing', S.A1P, 21)]), D, year=2021, lang=None, doc=True, sheets={'A1': 1})
+        self.put('Company/Projects/Northfield/02 Drawings/overview rev2.pdf', S.pdf_bytes([('drawing', S.A1P, 22)]), D, year=2021, lang=None, doc=True, sheets={'A1': 1})
+        self.put('Company/Projects/Northfield/02 Drawings/wiring schematic.pdf', S.pdf_bytes([('drawing', S.A4P, 23)]), D, year=2021, lang=None, doc=True,
                  sheets={'A4': 1}, schematic=True)
-        self.put('Company/Projects/Alpha/03 Contract/contract.docx', S.docx_bytes(S.RO * 3 + ' Contract 1.', 2019), D, year=2024, lang='ro', doc=True)
+        self.put('Company/Projects/Northfield/03 Contract/contract.docx', S.docx_bytes(S.RO * 3 + ' Contract 1.', 2019), D, year=2024, lang='ro', doc=True)
         self.files[-1]['year'] = 2019
-        self.put('Company/Projects/Beta/03 Contract/contract beta.docx', S.docx_bytes(S.RO * 3 + ' Contract 2.', 2019), D, year=2024, lang='ro', doc=True)
+        self.put('Company/Projects/Southbank/03 Contract/contract beta.docx', S.docx_bytes(S.RO * 3 + ' Contract 2.', 2019), D, year=2024, lang='ro', doc=True)
         self.files[-1]['year'] = 2019
         mixed = S.RO * 8 + S.EN * 3
-        self.put('Company/Projects/Beta/03 Contract/bilingual contract.docx', S.docx_bytes(mixed, 2020), D, year=2024, lang='ro', doc=True)
+        self.put('Company/Projects/Southbank/03 Contract/bilingual contract.docx', S.docx_bytes(mixed, 2020), D, year=2024, lang='ro', doc=True)
         self.files[-1]['year'] = 2020
         self.bilingual = 1
         acceptance = S.pdf_bytes([('text', S.A4P, 31), ('drawing', S.A4P, 32), ('text', S.A4P, 33)])
-        self.put('Company/Projects/Alpha/04 Acceptance/acceptance protocol.pdf', acceptance, D, year=2022, lang='en', doc=True, sheets={'A4': 1}, pages=3)
+        self.put('Company/Projects/Northfield/04 Acceptance/acceptance protocol.pdf', acceptance, D, year=2022, lang='en', doc=True, sheets={'A4': 1}, pages=3)
         dxf = b'0\nSECTION\n2\nENTITIES\n0\nENDSEC\n0\nEOF\n' * 3
         self.dxf = dxf
-        self.put('Company/Projects/Beta/02 Drawings/pipe layout.dxf', dxf, T.CAD, year=2020, cad=True)
+        self.put('Company/Projects/Southbank/02 Drawings/pipe layout.dxf', dxf, T.CAD, year=2020, cad=True)
         # ---- scans
-        self.put('Company/Scans/scan001.pdf', S.pdf_bytes([('scan', S.A4P, 1), ('scan', S.A4P, 2)]), SC, year=2022, lang=None, doc=True)
-        self.put('Company/Scans/scan002.tif', S.tiff_bytes(297, 420, 200, 3), SC, year=2022, lang=None, doc=True, sheets={'A3': 1})
+        self.put('Company/Paper archive/scan001.pdf', S.pdf_bytes([('scan', S.A4P, 1), ('scan', S.A4P, 2)]), SC, year=2022, lang=None, doc=True)
+        self.put('Company/Paper archive/scan002.tif', S.tiff_bytes(297, 420, 200, 3), SC, year=2022, lang=None, doc=True, sheets={'A3': 1})
         # ---- miscellaneous
         misc = 'Company/Misc/'
         self.put(misc + 'old note.txt', (S.EN * 2).encode(), D, year=1985, lang='en')
         self.unreliable_files = [self.files[-1]]
         self.put(misc + 'future.txt', (S.EN * 2 + ' Future.').encode(), D, year=2999, lang='en')
         self.unreliable_files.append(self.files[-1])
-        self.put(misc + 'legacy.doc', S.ole_doc_bytes(S.EN * 2 + ' Legacy.'), D, year=2012, lang='en', doc=True)
-        self.put(misc + 'passwords.txt', b'top secret value', T.CREDENTIALS, year=2023, cred=True, label='txt')
+        self.put(misc + 'oldformat.doc', S.ole_doc_bytes(S.EN * 2 + ' Legacy.'), D, year=2012, lang='en', doc=True)
+        self.put(misc + 'parola cont.txt', b'top secret value', T.CREDENTIALS, year=2023, cred=True, label='txt')
         self.put(misc + 'keystore.p12', b'\x30\x82binary', T.CREDENTIALS, year=2023, cred=True)
         self.put(misc + 'photo1.jpg', b'\xff\xd8\xff\xe0' + b'jpeg bytes one' * 5, T.PHOTOS, year=2017)
         self.put(misc + 'photo2.png', S.png_bytes(2), T.PHOTOS, year=2017)
@@ -145,8 +145,8 @@ class Fixture:
         (self.data / 'Company/Misc/.hidden').mkdir()
         (self.data / 'Company/Misc/.hidden/inside.txt').write_text('hidden content')
         (self.data / 'Company/Misc/.DS_Store').write_bytes(b'x')
-        (self.data / 'Company/Misc/Passwords').mkdir()
-        (self.data / 'Company/Misc/Passwords/list.txt').write_text('secret')
+        (self.data / 'Company/Misc/Credentials').mkdir()
+        (self.data / 'Company/Misc/Credentials/list.txt').write_text('secret')
         (self.data / 'Company/Misc/link.txt').symlink_to(self.base / 'elsewhere.txt')
         self.hidden_entries = 2
         self.credential_folders = 1
@@ -166,7 +166,7 @@ class Fixture:
         readme = (S.EN * 2 + ' Readme.').encode()
         dwg = b'AC1015' + b'\x01' * 40
         entries = [('docs/tender notice.pdf', self.tender), ('nested.zip', nested.getvalue()), ('report.docx', report), ('readme.txt', readme),
-                   ('Passwords.xlsx', b'cipher bytes'), ('cad/plan.dwg', dwg), ('cad/copy.dxf', self.dxf)]
+                   ('Parole.xlsx', b'cipher bytes'), ('cad/plan.dwg', dwg), ('cad/copy.dxf', self.dxf)]
         buffer = io.BytesIO()
         with zipfile.ZipFile(buffer, 'w', zipfile.ZIP_DEFLATED) as archive:
             for name, data in entries:
@@ -179,7 +179,7 @@ class Fixture:
         self.member(a, 'nested.zip!/drawing.pdf', inner_drawing, D, new=True, lang=None, sheets={'A3': 1})
         self.member(a, 'report.docx', report, D, new=True, lang='ro')
         self.member(a, 'readme.txt', readme, D, new=True, lang='en')
-        self.member(a, 'Passwords.xlsx', b'cipher bytes', T.CREDENTIALS, new=True, cred=True, label='xlsx')
+        self.member(a, 'Parole.xlsx', b'cipher bytes', T.CREDENTIALS, new=True, cred=True, label='xlsx')
         self.member(a, 'cad/plan.dwg', dwg, T.CAD, new=True, cad=True)
         self.member(a, 'cad/copy.dxf', self.dxf, T.CAD, new=False, cad=True)
         self.archives_opened += 2
