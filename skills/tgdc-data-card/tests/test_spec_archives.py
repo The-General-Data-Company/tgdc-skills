@@ -171,6 +171,19 @@ class ExternalToolTests(unittest.TestCase):
         self.assertEqual((reader.lost, reader.partly), (0, 0))
         self.assertEqual(list((self.base / 'work').iterdir()), [])     # private temporary folders are removed
 
+    def test_a_tool_archive_over_the_size_cap_or_without_disk_space_is_not_unpacked(self):
+        name = 'x.7z'
+        tools = {'7zz' if shutil.which('7zz') else '7z': self.tool}
+        capped = A.Reader(str(self.base / 'work'), tools=tools, limits={'max_expanded_bytes': 10})
+        self.assertTrue(capped.open_archive('7z', name, io.BytesIO(self.data), 1, '', compressed=len(self.data)))
+        self.assertEqual((capped.partly, capped.members), (1, []))
+        from unittest import mock
+        with mock.patch.object(shutil, 'disk_usage', return_value=shutil._ntuple_diskusage(100, 99, 1)):
+            reader = A.Reader(str(self.base / 'work'), tools=tools)
+            reader.open_archive('7z', name, io.BytesIO(self.data), 1, '', compressed=len(self.data))
+        self.assertEqual(dict(reader.failed), {'7z:not enough free disk space': 1})
+        self.assertEqual(list((self.base / 'work').iterdir()), [])
+
     @unittest.skipUnless(shutil.which('bsdtar') or Path('/usr/bin/bsdtar').exists(), 'needs bsdtar')
     def test_bsdtar_reads_7z_when_it_is_the_only_tool(self):
         reader, opened = self.read({'bsdtar': shutil.which('bsdtar') or '/usr/bin/bsdtar'})

@@ -412,8 +412,10 @@ def process_task(task, settings, stage, descriptors):
         deadline = now + settings['parse_seconds']
         try:
             role = task.get('role')
-            if extension == 'eml' and data is not None:
+            if extension == 'eml' and data is not None and size <= settings['max_message_bytes']:
                 result['mail'] = spec_content.analyze_message(data, deadline=deadline)
+            elif extension == 'eml':
+                result['unreadable'] = True
             elif extension == 'mbox':
                 stream.seek(0)
                 result['mbox'] = spec_content.analyze_mbox(stream, set(task.get('known', ())), settings['max_message_bytes'],

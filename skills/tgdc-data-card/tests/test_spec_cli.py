@@ -1,6 +1,5 @@
 """The datacard.py spec, spec-sample and render commands run from the skill folder."""
 import json
-import os
 import subprocess
 import sys
 import tempfile

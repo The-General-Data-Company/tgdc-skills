@@ -441,7 +441,12 @@ class Build:
                     facts = pdf if extension == 'pdf' else member.get('img')
                     if facts:
                         sheets.add(sha, facts, entry.rel + '/' + name, 'archive')
-        return self.assemble(locals())
+        return self.assemble({
+            'categories': categories, 'formats': formats, 'all_hashes': all_hashes, 'hashed': hashed, 'total_files': total_files,
+            'total_bytes': total_bytes, 'parts': parts, 'unchecked': unchecked, 'years': years, 'year_bytes': year_bytes,
+            'unreliable': unreliable, 'document_years': document_years, 'cad': cad, 'language': language, 'projects': projects,
+            'members_total': members_total, 'members_new': members_new, 'archive_stats': archive_stats, 'not_opened': not_opened,
+            'tools_used': tools_used, 'member_cats': member_cats})
 
     def assemble(self, state):
         cfg = self.cfg
@@ -469,6 +474,21 @@ class Build:
             spec['parts']['archive_contents'] = {'files': members_total[0], 'bytes': members_total[1], 'archives': archive_stats['opened'],
                                                   'new_files': members_new[0], 'new_bytes': members_new[1]}
             spec['parts']['held_without_archives'] = {'files': held_files, 'bytes': held_bytes}
+        # An extension carried by a single file and not a known format could be a personal or client name: group it as irregular.
+        label_files = Counter()
+        for (label, _), row in formats.items():
+            label_files[label] += row[0]
+        rare = {label for label, files in label_files.items() if files == 1 and label not in T.CATEGORY_OF_EXTENSION
+                and label not in (T.NO_EXTENSION, T.IRREGULAR_EXTENSION) and not label.isdigit()}
+        merged = defaultdict(lambda: [0, 0, 0])
+        for (label, category), row in formats.items():
+            target = merged[(T.IRREGULAR_EXTENSION if label in rare else label, category)]
+            for position in range(3):
+                target[position] += row[position]
+        formats = merged
+        for stat in list(categories.values()) + list(state['member_cats'].values()):
+            for label in rare:
+                stat['ext'].pop(label, None)
         spec['categories'] = []
         for name in T.CATEGORIES:
             stat = categories[name]

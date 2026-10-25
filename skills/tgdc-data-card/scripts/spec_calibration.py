@@ -13,11 +13,10 @@ from collections import defaultdict
 from pathlib import Path
 
 import spec_content
-import spec_taxonomy as T
 from formatspec import CACHE_NAME, _open_regular
 from profiler import checked_path
 from spec_aggregate import AUTO_DRAWING, DRAWING_DEFAULTS, SCHEMATIC_DEFAULTS
-from spec_taxonomy import A4_LIKE, IMAGE_SHEET_EXTENSIONS, matches_any, raw_extension
+from spec_taxonomy import A4_LIKE, matches_any, raw_extension
 
 FOLDER = 'calibration.private'
 MAX_SIDE = 1000

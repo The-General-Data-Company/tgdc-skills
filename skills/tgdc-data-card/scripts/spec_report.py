@@ -653,7 +653,7 @@ def years_section(spec):
 
 
 def notes(spec):
-    parts, totals, method = spec['parts'], spec['totals'], spec['methodology']
+    parts, method = spec['parts'], spec['methodology']
     archives = method['archives']
     has_archives = 'archive_contents' in parts
     items = ['All figures are for the original files as held by the company' + (', together with the contents of the compressed archives among them'

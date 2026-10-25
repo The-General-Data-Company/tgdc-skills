@@ -36,6 +36,7 @@ MAGIC = [(b'PK\x03\x04', 'zip'), (b'PK\x05\x06', 'zip'), (b'Rar!\x1a\x07', 'rar'
          (b'\x1f\x8b', 'gz'), (b'BZh', 'bz2'), (b'\xfd7zXZ\x00', 'xz'), (b'MSCF', 'cab'), (b'\x60\xea', 'arj')]
 CHUNK = 1024 * 1024
 EXTERNAL_TIMEOUT = 3600
+REASONS = {'password': 'password protected', 'space': 'not enough free disk space', 'timeout': 'timeout'}
 
 
 class CapReached(Exception):
@@ -43,6 +44,10 @@ class CapReached(Exception):
 
 
 class TimeUp(Exception):
+    pass
+
+
+class NoSpace(Exception):
     pass
 
 
@@ -139,6 +144,10 @@ class Reader:
         if (self.expanded > self.limits['ratio_floor_bytes']
                 and self.expanded / max(1, self.compressed) > self.limits['max_ratio']):
             raise CapReached('expansion ratio cap')
+
+    def allowance(self):
+        """Bytes an extraction may still add before the archive cap is reached."""
+        return max(0, self.limits['max_expanded_bytes'] - self.expanded)
 
     # ------------------------------------------------------------------ members
     def spill(self, prefix_data):
@@ -360,6 +369,9 @@ class Reader:
 
     # ------------------------------------------------------------------ external tools
     def materialize(self, stream, name, folder):
+        stream.seek(0, os.SEEK_END)
+        if shutil.disk_usage(folder).free < stream.tell() * 2.2 + 1024 * 1024:
+            raise NoSpace()
         extension = raw_extension(name)
         target = os.path.join(folder, 'archive' + ('.' + extension if extension.isalnum() and len(extension) <= 8 else ''))
         stream.seek(0)
@@ -388,13 +400,37 @@ class Reader:
                 outcome = self.run_tool(tool, kind, target, folder, depth, prefix)
                 if outcome is True:
                     return True
-                if outcome == 'password':
-                    self.failed[f'{kind}:password protected'] += 1
+                if outcome in REASONS:
+                    self.failed[f'{kind}:{REASONS[outcome]}'] += 1
                     return False
             self.failed[f'{kind}:damaged'] += 1
             return False
+        except NoSpace:
+            self.failed[f'{kind}:not enough free disk space'] += 1
+            return False
         finally:
             shutil.rmtree(folder, ignore_errors=True)
+
+    def run_guarded(self, arguments, folder, environment, watch, allowance, timeout=EXTERNAL_TIMEOUT):
+        """Run an extraction tool with no input, stopping it when the unpacked folder outgrows the allowance or the time is up."""
+        process = subprocess.Popen(arguments, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, cwd=folder,
+                                   env=environment)
+        started = time.monotonic()
+        try:
+            while True:
+                try:
+                    return process.wait(timeout=1.0)
+                except subprocess.TimeoutExpired:
+                    pass
+                if time.monotonic() - started > timeout:
+                    raise subprocess.TimeoutExpired(arguments, timeout)
+                self.check_time()
+                if folder_size(watch) > allowance:
+                    raise CapReached('expanded size cap')
+        finally:
+            if process.poll() is None:
+                process.kill()
+                process.wait()
 
     def run_tool(self, tool, kind, target, folder, depth, prefix):
         executable = self.tools[tool]
@@ -410,8 +446,11 @@ class Reader:
                     return 'password' if b'password' in (listing.stderr + listing.stdout).lower() or b'encrypted' in listing.stderr.lower() else False
                 listed = parse_listing(listing.stdout.decode('utf-8', 'replace'))
                 files = [entry for entry in listed if not entry['dir'] and not entry['link']]
-                if sum(entry['size'] for entry in files) > self.limits['max_expanded_bytes'] - self.expanded:
+                declared = sum(entry['size'] for entry in files)
+                if declared > self.allowance():
                     raise CapReached('expanded size cap')
+                if shutil.disk_usage(folder).free < declared * 1.1 + 1024 * 1024:
+                    return 'space'
                 wanted, secret, unsafe = [], [], 0
                 encrypted = 0
                 for entry in files:
@@ -427,27 +466,25 @@ class Reader:
                     list_file = os.path.join(folder, 'wanted.txt')
                     with open(list_file, 'w', encoding='utf-8') as handle:
                         handle.write('\n'.join(entry['path'] for entry in wanted) + '\n')
-                    subprocess.run([executable, 'x', '-y', '-bd', '-spd', '-scsUTF-8', '-aoa', '-o' + destination, target, '@' + list_file],
-                                   capture_output=True, stdin=subprocess.DEVNULL, timeout=EXTERNAL_TIMEOUT, cwd=folder, env=environment)
+                    self.run_guarded([executable, 'x', '-y', '-bd', '-spd', '-scsUTF-8', '-aoa', '-o' + destination, target, '@' + list_file],
+                                     folder, environment, destination, self.allowance())
                 self.lose(unsafe + encrypted)
                 for entry in secret:
                     self.members.append({'n': clean(prefix + entry['path']), 'x': raw_extension(entry['path']), 's': entry['size'], 'h': None, 'cred': True})
                 problems = unsafe + encrypted
             elif tool == 'bsdtar':
-                result = subprocess.run([executable, '-xf', target, '-C', destination, '--no-same-owner', '--no-same-permissions'],
-                                        capture_output=True, stdin=subprocess.DEVNULL, timeout=EXTERNAL_TIMEOUT, cwd=folder, env=environment)
-                if result.returncode != 0 and not any(os.scandir(destination)):
+                code = self.run_guarded([executable, '-xf', target, '-C', destination, '--no-same-owner', '--no-same-permissions'],
+                                        folder, environment, destination, self.allowance())
+                if code != 0 and not any(os.scandir(destination)):
                     return False
-                problems = 1 if result.returncode != 0 else 0
+                problems = 1 if code != 0 else 0
             else:
-                result = subprocess.run([executable, '-q', '-D', '-o', destination, target], capture_output=True,
-                                        stdin=subprocess.DEVNULL, timeout=EXTERNAL_TIMEOUT, cwd=folder, env=environment)
-                if result.returncode != 0 and not any(os.scandir(destination)):
-                    return 'password' if b'password' in result.stdout.lower() + result.stderr.lower() else False
-                problems = 1 if result.returncode != 0 else 0
+                code = self.run_guarded([executable, '-q', '-D', '-o', destination, target], folder, environment, destination, self.allowance())
+                if code != 0 and not any(os.scandir(destination)):
+                    return False
+                problems = 1 if code != 0 else 0
         except subprocess.TimeoutExpired:
-            self.failed[f'{kind}:timeout'] += 1
-            return False
+            return 'timeout'
         except OSError:
             return False
         self.opened += 1
@@ -503,6 +540,28 @@ def _is_link(attributes):
     parts = attributes.split()
     mode = parts[-1] if parts else ''
     return mode.startswith('l')
+
+
+def folder_size(path):
+    """Bytes below a folder, counting regular files only and never following links."""
+    total = 0
+    stack = [path]
+    while stack:
+        try:
+            with os.scandir(stack.pop()) as entries:
+                for entry in entries:
+                    try:
+                        if entry.is_symlink():
+                            continue
+                        if entry.is_dir(follow_symlinks=False):
+                            stack.append(entry.path)
+                        else:
+                            total += entry.stat(follow_symlinks=False).st_size
+                    except OSError:
+                        continue
+        except OSError:
+            continue
+    return total
 
 
 def parse_listing(text):
