@@ -314,10 +314,8 @@ def metric(value, unit, denominator, method, coverage, basis='measured'):
             'method': method, 'coverage': coverage}
 
 
-def profile(sources, output, limits=None):
-    """Return and save aggregate profile; save local-only manifest separately."""
-    require_supported_platform()
-    limits = validate_limits(limits)
+def prepare_roots(sources, output):
+    """Validate explicit roots and a separate output directory; return (roots, output)."""
     roots = [checked_path(source) for source in sources]
     output = checked_path(output)
     if not roots or any(not root.exists() or not (root.is_dir() or root.is_file()) for root in roots):
@@ -333,6 +331,14 @@ def profile(sources, output, limits=None):
             raise ValueError('Output must be separate from selected input.')
     if output.exists() and not output.is_dir():
         raise ValueError('Output must be a directory.')
+    return roots, output
+
+
+def profile(sources, output, limits=None):
+    """Return and save aggregate profile; save local-only manifest separately."""
+    require_supported_platform()
+    limits = validate_limits(limits)
+    roots, output = prepare_roots(sources, output)
     files, exclusions, complete = inventory(roots, limits)
     selected = stratified_sample(files, limits['max_sample_files'])
     statuses = Counter(exclusions); language_counts = Counter(); language_reasons = Counter()

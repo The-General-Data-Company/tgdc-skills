@@ -1,0 +1,131 @@
+"""Per-content analyzers on synthetic bytes."""
+import io
+import sys
+import unittest
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'scripts'))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import spec_content as C
+import spec_samples as S
+
+
+class PdfTests(unittest.TestCase):
+    def test_text_layer_pages_sizes_and_vector_pages(self):
+        data = S.pdf_bytes([('text', S.A4P, 1), ('drawing', S.A4P, 2), ('text', S.A3P, 3), ('drawing', S.A1P, 4), ('scan', S.LETTERP, 5)], creation_year=2017)
+        facts = C.analyze_pdf(io.BytesIO(data), text_pages=1)
+        self.assertEqual(facts['pages'], 5)
+        self.assertFalse(facts['scanned'])
+        self.assertEqual(facts['year'], 2017)
+        self.assertEqual(facts['classes']['A4'], [2, 1])        # two A4 pages, one vector-heavy
+        self.assertEqual(facts['classes']['A3'], [1, 0])        # larger than A4: counted by size, no vector flag needed
+        self.assertEqual(facts['classes']['A1'], [1, 0])
+        self.assertEqual(facts['classes']['letter'], [1, 0])    # an image-only page is not vector-heavy
+        self.assertNotIn('_text', facts)
+
+    def test_image_only_pdf_is_scanned_and_first_three_pages_are_checked_for_members(self):
+        scan = S.pdf_bytes([('scan', S.A4P, 1), ('scan', S.A4P, 2)])
+        self.assertTrue(C.analyze_pdf(io.BytesIO(scan), text_pages=1)['scanned'])
+        mixed = S.pdf_bytes([('scan', S.A4P, 1), ('text', S.A4P, 2)])
+        self.assertTrue(C.analyze_pdf(io.BytesIO(mixed), text_pages=1)['scanned'])
+        self.assertFalse(C.analyze_pdf(io.BytesIO(mixed), text_pages=3)['scanned'])
+
+    def test_text_is_returned_only_on_request(self):
+        data = S.pdf_bytes([('text', S.A4P, S.RO)])
+        facts = C.analyze_pdf(io.BytesIO(data), want_text=True)
+        self.assertIn('Antreprenorul', facts['_text'])
+
+    def test_broken_pdf_is_unchecked(self):
+        self.assertEqual(C.analyze_pdf(io.BytesIO(b'not a pdf'))['unchecked'], True)
+        self.assertEqual(C.analyze_pdf(io.BytesIO(b''))['unchecked'], True)
+
+    def test_candidate_pages_for_calibration(self):
+        data = S.pdf_bytes([('text', S.A4P, 1), ('drawing', S.A4P, 2), ('text', S.A3P, 3)])
+        rows = C.page_candidates(io.BytesIO(data))
+        self.assertEqual([(i, name, flag) for i, name, flag, _ in rows], [(0, 'A4', False), (1, 'A4', True), (2, 'A3', False)])
+
+
+class ImageTests(unittest.TestCase):
+    def test_tiff_size_comes_from_dpi(self):
+        facts = C.analyze_tiff(io.BytesIO(S.tiff_bytes(297, 420, 200)))
+        self.assertEqual(facts['classes'], {'A3': [1, 0]})
+        self.assertEqual(C.analyze_tiff(io.BytesIO(b'junk'))['unchecked'], True)
+
+    def test_plain_images_are_one_image_file_sheet(self):
+        self.assertEqual(C.image_sheet_facts('png'), {'pages': 1, 'classes': {'image': [1, 0]}})
+        self.assertIsNone(C.image_sheet_facts('doc'))
+
+
+class TextTests(unittest.TestCase):
+    def test_office_and_plain_text_and_dates(self):
+        text, year = C.extract_text('docx', S.docx_bytes('Hello contractor works', 2015))
+        self.assertEqual((text, year), ('Hello contractor works', 2015))
+        text, year = C.extract_text('xlsx', S.xlsx_bytes(['Bill', 'of quantities'], 2012))
+        self.assertEqual((text, year), ('Bill of quantities', 2012))
+        self.assertEqual(C.extract_text('txt', 'plain words'.encode())[0], 'plain words')
+        self.assertEqual(C.extract_text('html', b'<html><script>x()</script><p>Visible &amp; text</p></html>')[0].split(), ['Visible', '&', 'text'])
+        self.assertEqual(C.extract_text('png', b'')[0], '')
+
+    def test_unsafe_xml_and_encrypted_office_are_rejected(self):
+        import zipfile
+        buffer = io.BytesIO()
+        with zipfile.ZipFile(buffer, 'w') as archive:
+            archive.writestr('word/document.xml', '<!DOCTYPE x [<!ENTITY a "b">]><w:document xmlns:w="urn:x"><w:t>&a;</w:t></w:document>')
+        with self.assertRaises(ValueError):
+            C.extract_text('docx', buffer.getvalue())
+
+    def test_legacy_doc_best_effort_in_both_encodings(self):
+        for encoding in ('cp1252', 'utf-16-le'):
+            with self.subTest(encoding=encoding):
+                text = C.legacy_doc_text(S.ole_doc_bytes(S.EN * 2, encoding))
+                self.assertIn('contractor shall deliver', text)
+
+    def test_romanian_cp1250_text_decodes(self):
+        data = 'Lucrările şi reţelele'.encode('cp1250')
+        self.assertIn('Lucr', C.decode_plain(data))
+
+
+class MailTests(unittest.TestCase):
+    def build(self):
+        pdf = S.pdf_bytes([('text', S.A3P, 7)])
+        return S.eml_bytes('Water plan', 'Ann <ann@example.test>', 'Owner <owner@example.test>', S.RO * 3, year=2022,
+                           attachments=[('plan.pdf', pdf, 'application/pdf'), ('layout.dxf', b'0\nSECTION\n', 'application/octet-stream')],
+                           delivered_to='owner@example.test'), pdf
+
+    def test_message_facts_have_no_addresses_or_text(self):
+        data, pdf = self.build()
+        facts = C.analyze_message(data)
+        self.assertEqual(facts['year'], 2022)
+        self.assertEqual(len(facts['mid']), 16)
+        self.assertEqual(len(facts['from']), 16)
+        self.assertEqual(len(facts['to']), 1)
+        self.assertEqual(facts['lang']['lang'], 'ro')
+        self.assertEqual(sorted(a['ext'] for a in facts['atts']), ['dxf', 'pdf'])
+        attached = next(a for a in facts['atts'] if a['ext'] == 'pdf')
+        import hashlib
+        self.assertEqual(attached['sha'], hashlib.sha256(pdf).hexdigest())
+        self.assertEqual(attached['pdf']['classes'], {'A3': [1, 0]})
+        flat = repr(facts)
+        for private in ('ann@example', 'owner@example', 'Water plan', 'Antreprenorul'):
+            self.assertNotIn(private, flat)
+
+    def test_mbox_messages_are_counted_streamed_and_known_ones_skipped(self):
+        import mailbox
+        import tempfile
+        one, _ = self.build()
+        two = S.eml_bytes('Second note', 'Bob <bob@example.test>', 'Owner <owner@example.test>', S.EN * 3, year=2023)
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / 'x.mbox'
+            box = mailbox.mbox(str(path))
+            box.add(one); box.add(two); box.flush(); box.close()
+            known = {C.analyze_message(one)['mid']}
+            with open(path, 'rb') as stream:
+                result = C.analyze_mbox(stream, known, 1 << 20)
+        self.assertEqual(result['count'], 2)
+        self.assertTrue(result['messages'][0]['known'])
+        self.assertEqual(result['messages'][1]['lang']['lang'], 'en')
+        self.assertEqual(result['messages'][1]['year'], 2023)
+
+
+if __name__ == '__main__':
+    unittest.main()
