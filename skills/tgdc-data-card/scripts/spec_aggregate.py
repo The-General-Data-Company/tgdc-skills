@@ -374,7 +374,7 @@ class Build:
                     and record.category in EXAMINED_CATEGORIES and record.ext in TEXT_EXTRACTABLE and record.ext != 'mbox'
                     and record.entry.role != 'follower'):
                 lang = ((record.mail or {}).get('lang') if record.ext == 'eml' else record.facts.get('lang')) or NO_LANGUAGE
-                language.append((lang['lang'], size, record.ext == 'eml', lang['chunks']))
+                language.append((lang['lang'], size, record.ext == 'eml', lang['chunks'], record.category == T.SCANNED))
             if record.sha and not record.cred and record.mclass not in ('alt_mbox', 'alt_archive'):
                 facts = record.facts.get('pdf') if record.ext == 'pdf' else record.facts.get('img')
                 if facts:
@@ -400,7 +400,7 @@ class Build:
             if record.mbox:
                 for message in record.mbox['messages']:
                     if message.get('lang') and not message.get('known'):
-                        language.append((message['lang']['lang'], message.get('size', 0), True, message['lang']['chunks']))
+                        language.append((message['lang']['lang'], message.get('size', 0), True, message['lang']['chunks'], False))
         # ---------------------------------------------------------------- pass 2: archive members
         members_total, members_new = [0, 0], [0, 0]
         archive_stats = Counter()
@@ -459,7 +459,7 @@ class Build:
                     cad['archives_new'] += 1 if new else 0
                 if new and category in EXAMINED_CATEGORIES and extension in TEXT_EXTRACTABLE:
                     lang = member.get('lang') or NO_LANGUAGE
-                    language.append((lang['lang'], size, extension == 'eml', lang['chunks']))
+                    language.append((lang['lang'], size, extension == 'eml', lang['chunks'], category == T.SCANNED))
                 if sha and not cred:
                     facts = pdf if extension == 'pdf' else member.get('img')
                     if facts:
@@ -775,8 +775,10 @@ def build_languages(entities):
     if not entities:
         return None
     files, size, messages = Counter(), Counter(), Counter()
-    for code, byte_count, is_message, _ in entities:
+    scans = 0
+    for code, byte_count, is_message, _, scan in entities:
         files[code] += 1
+        scans += 1 if scan and code is None else 0
         size[code] += byte_count
         messages[code] += 1 if is_message else 0
     named = {code: n for code, n in files.items() if code and n >= MIN_LANGUAGE_FILES}
@@ -787,13 +789,13 @@ def build_languages(entities):
     if rare:
         result['other'] = {'files': sum(files[c] for c in rare), 'bytes': sum(size[c] for c in rare), 'messages': sum(messages[c] for c in rare)}
     if files.get(None):
-        result['none'] = {'files': files[None], 'bytes': size[None], 'messages': messages[None]}
+        result['none'] = {'files': files[None], 'bytes': size[None], 'messages': messages[None], 'scans': scans}
     result['total'] = {'files': len(entities), 'bytes': sum(size.values()), 'messages': sum(messages.values())}
     locals_ = [row for row in rows if row['code'] != 'en']
     if locals_ and any(row['code'] == 'en' for row in rows):
         local = locals_[0]['code']
         count = 0
-        for code, _, _, chunks in entities:
+        for code, _, _, chunks, _ in entities:
             classified = sum(chunks.values())
             if classified >= 5 and chunks.get(local, 0) / classified >= 0.2 and chunks.get('en', 0) / classified >= 0.2:
                 count += 1

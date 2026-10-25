@@ -126,6 +126,28 @@ class SpecReportTests(unittest.TestCase):
         specification = ' '.join(' '.join(pages[len(card_pages):]).split())
         self.assertNotIn('ARCHIVE S', specification.upper())              # header words are not broken
 
+    def test_the_reason_for_unconfirmed_languages_follows_the_counts(self):
+        import spec_report
+        reason = spec_report.no_language_reason
+        self.assertEqual(reason({'files': 10, 'scans': 8}), 'mainly scans without a text layer; also very short or garbled text')
+        self.assertEqual(reason({'files': 10, 'scans': 2}), 'mainly very short or garbled text; also scans without a text layer')
+        self.assertEqual(reason({'files': 10, 'scans': 5}), 'mainly very short or garbled text; also scans without a text layer')
+        self.assertEqual(reason({'files': 10, 'scans': 10}), 'scans without a text layer')
+        self.assertEqual(reason({'files': 10, 'scans': 0}), 'very short or garbled text')
+        self.assertEqual(reason({'files': 10}), 'scans without a text layer, very short or garbled text')
+
+    def test_the_unconfirmed_language_rows_name_the_main_reason_found_in_the_data(self):
+        flat = ' '.join('\n'.join(self.render(self.spec)[1]).split())
+        self.assertIn('Files of text formats where no language could be confirmed (mainly very short or garbled text; also scans without a text layer)', flat)
+        self.assertIn('No language confirmed (mainly very short or garbled text; also scans without a text layer)', flat)
+        self.assertNotIn('mainly scans without a text layer', flat)
+        spec = copy.deepcopy(self.spec)
+        spec['languages']['none']['scans'] = spec['languages']['none']['files']
+        flat = ' '.join('\n'.join(self.render(spec, 'scans.pdf')[1]).split())
+        self.assertIn('No language confirmed (scans without a text layer)', flat)
+        self.assertNotIn('garbled', flat)
+        self.assertIn('no language could be confirmed (scans without a text layer)', flat)
+
     def test_sections_without_data_are_left_out(self):
         spec = copy.deepcopy(self.spec)
         for key in ('mailboxes', 'languages', 'archives', 'drawings', 'cad', 'years'):

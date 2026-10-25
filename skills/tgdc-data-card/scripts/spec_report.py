@@ -402,6 +402,19 @@ def drawing_rows(spec):
     return rows
 
 
+def no_language_reason(none):
+    """Why files have no confirmed language, ordered by the counts: scans without a text layer against short or garbled text."""
+    scans = none.get('scans')
+    if scans is None:
+        return 'scans without a text layer, very short or garbled text'
+    text = none['files'] - scans
+    if scans and text:
+        if scans > text:
+            return 'mainly scans without a text layer; also very short or garbled text'
+        return 'mainly very short or garbled text; also scans without a text layer'
+    return 'scans without a text layer' if scans else 'very short or garbled text'
+
+
 def language_rows(spec):
     rows = []
     languages = spec.get('languages')
@@ -413,7 +426,7 @@ def language_rows(spec):
         local = languages['bilingual']
         rows.append((f"Files with substantial text in both {local['name']} and English", n(local['files'])))
     if languages.get('none'):
-        rows.append(('Files of text formats where no language could be confirmed (mainly scans without a text layer; also very short or garbled text)',
+        rows.append((f"Files of text formats where no language could be confirmed ({no_language_reason(languages['none'])})",
                      n(languages['none']['files'])))
     return rows
 
@@ -572,7 +585,7 @@ def language_section(spec):
     if languages.get('other'):
         rows.append(['Other languages (isolated detections)', n(languages['other']['files']), gb2(languages['other']['bytes']), n(languages['other']['messages'])])
     if languages.get('none'):
-        rows.append(['No language confirmed (mainly scans without a text layer; also very short or garbled text)', n(languages['none']['files']),
+        rows.append([f"No language confirmed ({no_language_reason(languages['none'])})", n(languages['none']['files']),
                      gb2(languages['none']['bytes']), n(languages['none']['messages'])])
     total = languages['total']
     rows.append(['Total text-format files examined', n(total['files']), gb2(total['bytes']), n(total['messages'])])

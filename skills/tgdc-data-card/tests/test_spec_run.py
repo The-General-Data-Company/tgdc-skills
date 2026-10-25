@@ -201,6 +201,11 @@ class SpecRunTests(unittest.TestCase):
         self.assertEqual(languages['other']['files'], groups['de'][0])          # German is the main language of two files only
         self.assertEqual(languages['other']['messages'], 2)
         self.assertEqual([languages['none']['files'], languages['none']['bytes']], groups[None][:2])
+        scans = sum(1 for item in self.fx.files if item['lang'] is None and item['category'] == T.SCANNED and not item['cred'] and item['part'] in ('file', 'mailbox'))
+        scans += sum(1 for m in self.fx.members if m['lang'] is None and m['new'] and not m['container'] and m['category'] == T.SCANNED)
+        self.assertEqual(scans, 2)
+        self.assertEqual(languages['none']['scans'], scans)           # the other unconfirmed files are short or garbled text
+        self.assertGreater(languages['none']['files'], scans)
         self.assertEqual(languages['total']['files'], len(examined))
         self.assertEqual(languages['total']['messages'], sum(e[2] for e in examined))
         self.assertEqual(languages['bilingual'], {'code': 'ro', 'name': 'Romanian', 'files': self.fx.bilingual})
