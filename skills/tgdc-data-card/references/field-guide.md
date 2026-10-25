@@ -1,6 +1,6 @@
 # Evidence field guide
 
-This is a target catalog for describing selected enterprise data, not a mandatory questionnaire or 150 automatic features.
+This is a target catalog for describing selected enterprise data, not a mandatory questionnaire or 123 automatic features.
 
 ## Current automatic evidence
 
@@ -31,7 +31,7 @@ Language inference uses bounded dominant-language samples. The denominator is al
 
 ## Optional descriptions and missing evidence
 
-The [structured catalog](field-catalog.json) contains 150 stable field IDs grouped by dataset, system, document, record, case, task and governance. `v1_status` distinguishes automatic scope metadata, partial/private automatic evidence, optional provider context, and external evidence not implemented by the scanner. A mapping is qualified; for example extension inventory is not verified MIME distribution, and bounded language inference is not all-corpus language coverage. The scanner does not count real tokens or infer source systems, legal rights, topics, confirmed joins, complete history, case outcomes, action traces or task environments. The catalog entries are design choices; none implies that the local scanner implements OCR, model evaluations or source-system integrations.
+The [structured catalog](field-catalog.json) contains 123 stable field IDs grouped by dataset, system, document, record, case and governance. `v1_status` distinguishes automatic scope metadata, partial/private automatic evidence, optional provider context, and external evidence not implemented by the scanner. A mapping is qualified; for example extension inventory is not verified MIME distribution, and bounded language inference is not all-corpus language coverage. The scanner does not count real tokens or infer source systems, legal rights, topics, confirmed joins, complete history, case outcomes or action traces. The catalog entries are design choices; none implies that the local scanner implements OCR or source-system integrations.
 
 These descriptions may guide future analysis or explicit provider answers. They are not permission to read raw identifiers, table values, source paths, body text or confidential links into model context or shared aggregates. Document text and per-file references in a target data model remain private by default; v1 does not retain body text in either JSON output.
 

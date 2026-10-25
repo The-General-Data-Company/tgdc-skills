@@ -27,7 +27,7 @@ Everything else is copied, in every language and every file type: documents, sca
 
 ### Before you start
 
-- Use a business AI account with a data processing agreement and no training on your data (for example Claude Team, Enterprise, or API, or ChatGPT Business or Enterprise), or a local model. On a personal plan the agent runs only in its strictest mode, where it never sees file names or document content.
+- Use a business AI account with a data processing agreement that bars the provider from using your data to improve its models (for example Claude Team, Enterprise, or API, or ChatGPT Business or Enterprise), or a local model. On a personal plan the agent runs only in its strictest mode, where it never sees file names or document content.
 - Run on a snapshot or a read-only copy of the drive if you can, on a local disk with free space of at least the drive size plus 20 percent.
 - Share the result only after a data processing agreement with The General Data Company is signed.
 

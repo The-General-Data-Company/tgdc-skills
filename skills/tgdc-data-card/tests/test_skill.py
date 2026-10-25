@@ -22,11 +22,14 @@ class SkillTests(unittest.TestCase):
     def tearDown(self):
         self.tmp.cleanup()
 
-    def test_public_catalog_is_target_not_150_automatic_features(self):
+    def test_public_catalog_is_target_not_123_automatic_features(self):
         guide = (ROOT / 'references/field-guide.md').read_text()
         catalog = json.loads((ROOT / 'references/field-catalog.json').read_text())
-        self.assertEqual(len(catalog['fields']), 150)
-        self.assertEqual(len({field['id'] for field in catalog['fields']}), 150)
+        self.assertEqual(len(catalog['fields']), 123)
+        self.assertEqual(len({field['id'] for field in catalog['fields']}), 123)
+        self.assertFalse([field['id'] for field in catalog['fields'] if field['id'].startswith('task_') or field['level'] == 'task'])
+        self.assertNotIn('150', guide)
+        self.assertIn('123', guide)
         self.assertEqual(len(catalog['automatic_metrics']), 16)
         self.assertIn('first non-empty row', guide)
         self.assertIn('target catalog', guide)
