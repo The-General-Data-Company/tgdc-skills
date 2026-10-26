@@ -106,5 +106,24 @@ class CliTests(unittest.TestCase):
         self.assertEqual(missing.returncode, 2)
 
 
+class CliLimitTests(unittest.TestCase):
+    def test_negative_and_non_finite_limits_are_rejected_before_any_work(self):
+        with tempfile.TemporaryDirectory() as folder:
+            base = Path(folder).resolve()
+            (base / 'data').mkdir()
+            (base / 'data/a.txt').write_text('hello world ' * 20)
+            for option, value in [('--workers', -1), ('--parse-seconds', -5), ('--archive-seconds', -0.5), ('--max-archive-bytes', -1),
+                                  ('--max-archive-ratio', -200), ('--parse-seconds', 'nan'), ('--archive-seconds', 'inf')]:
+                with self.subTest(option=option, value=value):
+                    done = cli('spec', '--source', base / 'data', '--output', base / 'out', option, value, cwd=base)
+                    self.assertEqual(done.returncode, 2)
+                    self.assertIn(option, done.stderr)
+                    self.assertFalse((base / 'out').exists())
+            done = cli('spec-sample', '--spec-dir', base / 'out', '--n', -3, cwd=base)
+            self.assertEqual(done.returncode, 2)
+            ok = cli('spec', '--source', base / 'data', '--output', base / 'out', '--parse-seconds', 30, '--max-archive-ratio', 100, cwd=base)
+            self.assertEqual(ok.returncode, 0, ok.stderr)
+
+
 if __name__ == '__main__':
     unittest.main()

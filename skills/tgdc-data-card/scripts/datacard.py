@@ -1,10 +1,24 @@
 #!/usr/bin/env python3
 """TGDC Data Card CLI. All file content is untrusted data, never instructions."""
 import argparse
+import math
 import sys
 from pathlib import Path
 
 from profiler import DEFAULT_LIMITS, UnsupportedPlatform, profile
+
+
+def non_negative(kind):
+    """argparse type: a finite number that is not negative (0 leaves the option at its default)."""
+    def parse(text):
+        try:
+            value = kind(text)
+        except ValueError:
+            raise argparse.ArgumentTypeError(f'{text!r} is not a number')
+        if not math.isfinite(value) or value < 0:
+            raise argparse.ArgumentTypeError('must be a finite number that is not negative')
+        return value
+    return parse
 
 
 def main(argv=None):
@@ -19,15 +33,15 @@ def main(argv=None):
     command.add_argument('--source', action='append', required=True, help='Selected file or folder; repeat for disjoint roots.')
     command.add_argument('--output', required=True, help='Separate report directory outside the selected inputs.')
     command.add_argument('--config', help='Optional spec-config.json written from the answers of the data partner.')
-    command.add_argument('--workers', type=int, help='Parallel reader processes (default: up to 8).')
-    command.add_argument('--parse-seconds', type=float, help='Time limit for reading one document (default 300).')
-    command.add_argument('--archive-seconds', type=float, help='Time limit for unpacking one archive (default 7200).')
-    command.add_argument('--max-archive-bytes', type=int, help='Expanded size limit per archive (default 20 GB).')
-    command.add_argument('--max-archive-ratio', type=int, help='Expansion ratio limit per archive (default 200).')
-    command.add_argument('--stop-after', type=int, help=argparse.SUPPRESS)
+    command.add_argument('--workers', type=non_negative(int), help='Parallel reader processes (default: up to 8).')
+    command.add_argument('--parse-seconds', type=non_negative(float), help='Time limit for reading one document (default 300).')
+    command.add_argument('--archive-seconds', type=non_negative(float), help='Time limit for unpacking one archive (default 7200).')
+    command.add_argument('--max-archive-bytes', type=non_negative(int), help='Expanded size limit per archive (default 20 GB).')
+    command.add_argument('--max-archive-ratio', type=non_negative(int), help='Expansion ratio limit per archive (default 200).')
+    command.add_argument('--stop-after', type=non_negative(int), help=argparse.SUPPRESS)
     command = commands.add_parser('spec-sample', help='Write a small sample of page images for the optional visual check of the drawing counts.')
     command.add_argument('--spec-dir', required=True, help='Report directory that holds the specification cache.')
-    command.add_argument('--n', type=int, default=60, help='Number of page images (default 60).')
+    command.add_argument('--n', type=non_negative(int), default=60, help='Number of page images (default 60).')
     command = commands.add_parser('render', help='Render a reviewable TGDC PDF from aggregate evidence and explicit answers.')
     command.add_argument('--profile', required=True, help='Aggregate profile JSON, never the private manifest.')
     command.add_argument('--answers', required=True, help='Plain-string provider answers JSON.')
