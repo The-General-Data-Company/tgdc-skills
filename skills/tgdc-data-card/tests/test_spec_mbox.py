@@ -16,6 +16,7 @@ sys.path.insert(0, str(ROOT / 'scripts'))
 sys.path.insert(0, str(HERE))
 import formatspec
 import report
+import spec_content
 import spec_samples as S
 
 LOG = open(os.devnull, 'w')
@@ -148,6 +149,23 @@ class MailboxIntegrityTests(unittest.TestCase):
         text = self.pdf_text(spec)
         self.assertRegex(text, r'Mailbox 1 \(owner\): \d+ messages? (was|were) counted but not analyzed in full')
         self.assertIn('300', text)
+
+    def test_a_cut_mailbox_does_not_claim_that_sent_messages_are_missing(self):
+        write_mbox(self.box / 'all.mbox', [note(number) for number in range(10)])
+        analyzed = [spec_content.analyze_message(note(number)) for number in range(3)]
+
+        def cut(tasks, count, settings, on_result, target=None):
+            for task in tasks:
+                on_result(task, {'status': 'ok', 'sha': '1' * 64, 'mbox': {'count': 10, 'messages': analyzed, 'cut': 7, 'partial': 0}})
+        with mock.patch.object(formatspec, 'run_pool', cut):
+            spec = self.run_spec()
+        row = spec['mailboxes'][0]
+        self.assertEqual((row['messages'], row['incomplete']), (10, {'messages': 7, 'files': 0}))
+        self.assertFalse(row['sent_missing'])
+        self.assertEqual(spec['parts']['mailboxes']['incomplete'], [])
+        text = self.pdf_text(spec)
+        self.assertNotIn('increase once the sent messages are added', text)
+        self.assertIn('7 messages were counted but not analyzed in full', text)
 
     def test_a_complete_mailbox_is_not_flagged(self):
         write_mbox(self.box / 'all.mbox', [note(number) for number in range(5)])

@@ -621,7 +621,7 @@ class Build:
                 sent = sum(1 for m in counted if m.get('from') == owner)
                 row['sent'] = sent
                 row['received'] = len(counted) - sent
-                row['sent_missing'] = sent == 0 and 'held_messages' not in row
+                row['sent_missing'] = sent == 0 and 'held_messages' not in row and not row.get('incomplete')     # a cut mailbox says so by itself
             alternatives = []
             for mclass, kind in ALT_ORDER:
                 chosen = [r for r in members if r.mclass == mclass]
