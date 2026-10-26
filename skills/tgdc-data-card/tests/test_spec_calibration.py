@@ -7,6 +7,7 @@ import tempfile
 import unittest
 from datetime import datetime
 from pathlib import Path
+from unittest import mock
 
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parent
@@ -14,6 +15,7 @@ sys.path.insert(0, str(ROOT / 'scripts'))
 sys.path.insert(0, str(HERE))
 import formatspec
 import report
+import spec_calibration
 import spec_fixture as F
 from pypdf import PdfReader
 
@@ -95,6 +97,48 @@ class CalibrationTests(unittest.TestCase):
         text = ' '.join(' '.join(page.extract_text() for page in PdfReader(self.base / 'without.pdf').pages).split())
         self.assertNotIn('Estimated individual views', text)
         self.assertNotIn('visual check', text)
+
+
+class PageSampleGuards(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.base = Path(self.tmp.name).resolve()
+        self.data = self.base / 'data'
+        self.data.mkdir()
+
+    def png(self, name, size):
+        from PIL import Image
+        image = Image.new('L', size, 255)
+        image.putpixel((size[0] // 2, size[1] // 2), 0)
+        image.save(self.data / name)
+
+    def run_spec(self, out):
+        return formatspec.run_spec([self.data], out, workers=1, tools={}, report_date=datetime(2026, 10, 25), log=LOG)
+
+    def test_a_report_folder_with_url_characters_in_its_name_can_be_sampled(self):
+        self.png('drawing plan.png', (300, 200))
+        for name in ('out #1 test', 'what? out', '100% 50%25 out'):
+            with self.subTest(name=name):
+                out = self.base / name
+                self.run_spec(out)
+                self.assertEqual(spec_calibration.sample_pages(out, 10), 1)
+
+    def test_an_oversize_image_is_skipped_and_pillow_keeps_a_pixel_limit(self):
+        from PIL import Image
+        self.png('drawing small.png', (300, 200))
+        self.png('drawing huge.png', (2000, 1500))
+        out = self.base / 'out'
+        self.run_spec(out)
+        self.assertIsNotNone(spec_calibration.MAX_PIXELS)
+        with mock.patch.object(spec_calibration, 'MAX_PIXELS', 1000000):
+            written = spec_calibration.sample_pages(out, 10)
+            self.assertEqual(Image.MAX_IMAGE_PIXELS, 1000000)
+        self.assertEqual(written, 1)
+        with Image.open(out / 'calibration.private/sample-001.png') as image:
+            self.assertEqual(image.size, (300, 200))
+        with mock.patch.object(spec_calibration, 'MAX_PIXELS', 10000000):
+            self.assertEqual(spec_calibration.sample_pages(out, 10), 2)
 
 
 if __name__ == '__main__':

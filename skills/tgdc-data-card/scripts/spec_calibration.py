@@ -11,6 +11,7 @@ import shutil
 import sqlite3
 from collections import defaultdict
 from pathlib import Path
+from urllib.parse import quote
 
 import spec_content
 from formatspec import CACHE_NAME, _open_regular
@@ -20,6 +21,7 @@ from spec_taxonomy import A4_LIKE, matches_any, raw_extension
 
 FOLDER = 'calibration.private'
 MAX_SIDE = 1000
+MAX_PIXELS = 200000000           # images larger than this are not decoded for the sample (decompression bombs)
 STRATA = {'A4': 'A4 and letter', 'letter': 'A4 and letter', 'legal': 'A4 and letter', 'other': 'A4 and letter', 'A3': 'A3', 'tabloid': 'A3',
           'A2': 'A2', 'A1': 'A1 and A0', 'A0': 'A1 and A0', 'oversize': 'oversize', 'image': 'image'}
 
@@ -113,7 +115,7 @@ def sample_pages(directory, count=60, seed=20261025):
     cache = directory / CACHE_NAME
     if not cache.is_file():
         raise ValueError('Run the specification step first.')
-    db = sqlite3.connect(f'file:{cache}?mode=ro', uri=True)
+    db = sqlite3.connect(f'file:{quote(str(cache))}?mode=ro', uri=True)       # quoted: a folder name may hold # or ? or %
     try:
         roots = json.loads(db.execute("SELECT value FROM meta WHERE key='roots'").fetchone()[0])
         config = json.loads(db.execute("SELECT value FROM meta WHERE key='config'").fetchone()[0])
@@ -154,8 +156,10 @@ def sample_pages(directory, count=60, seed=20261025):
                     image = _render_pdf(stream, rng.choice(wanted))
                 else:
                     from PIL import Image
-                    Image.MAX_IMAGE_PIXELS = None
+                    Image.MAX_IMAGE_PIXELS = MAX_PIXELS
                     image = Image.open(stream)
+                    if image.width * image.height > MAX_PIXELS:
+                        raise ValueError('image too large')
                     image.thumbnail((MAX_SIDE, MAX_SIDE))
                     image = image.convert('L')
             except Exception:
