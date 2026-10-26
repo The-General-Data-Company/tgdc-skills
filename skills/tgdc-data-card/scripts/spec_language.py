@@ -37,6 +37,9 @@ _RAW = {
     'no': 'og i at det som en pa er av for med til den har de ikke om et han hun men var seg fra ved kan sa eller nar',
     'fi': 'ja on ei etta se oli han mutta kun tai myos niin joka kuin ovat ole sen kanssa nyt vain jos tama mukaan seka voi ne ennen jalkeen sitten kaikki tahan jotka mita kuka missa miten koska ilman vaan yli alle kautta lisaksi tassa siina kuitenkin hyvin kaksi yksi',
     'tr': 've bir bu da de icin ile ne ben o mi ki daha gibi ama cok olarak var olan ya kadar sonra veya her en degil tarafindan tum ise ancak bunun sonucu uzere bunlar sey hem ayrica diger boyle gore icinde arasinda once yeni kendi bazi',
+    'vi': 'va la cua cho mot nhung cac co trong duoc khong den nay voi de da nguoi khi tu ra se nhu cung dang nhieu hay ve lai tren sau neu rat o tai theo nhat hon cung phai nen boi ma',
+    'id': 'yang dan di dengan untuk dari dalam pada ini itu adalah akan tidak ke juga atau oleh sebagai ada telah dapat kami saya mereka kita lebih sudah karena bahwa saat sebuah seperti hanya jika para harus belum dua antara',
+    'ca': 'el la els les de del i en un una que per amb es no al als com mes pero seu seva son ha han va ser molt tambe aquest aquesta aixo sobre entre sense fins quan hi li ens dins tot totes',
 }
 STOPWORDS = {code: frozenset(words.split()) for code, words in _RAW.items()}
 
@@ -46,11 +49,16 @@ _SCRIPTS = {
     'cyrillic': [(0x0400, 0x052F)],
     'arabic': [(0x0600, 0x06FF), (0x0750, 0x077F), (0xFB50, 0xFDFF), (0xFE70, 0xFEFF)],
     'cjk': [(0x3040, 0x30FF), (0x3400, 0x4DBF), (0x4E00, 0x9FFF), (0xAC00, 0xD7AF)],
+    'hebrew': [(0x0590, 0x05FF)],
+    'devanagari': [(0x0900, 0x097F)],
+    'thai': [(0x0E00, 0x0E7F)],
 }
+NO_WORD_SPACES = frozenset(['cjk', 'thai'])         # scripts written without spaces between words: judged by letters, not by words
 SCRIPT_OF_LANGUAGE = {'el': 'greek', 'ru': 'cyrillic', 'bg': 'cyrillic', 'uk': 'cyrillic', 'sr': 'cyrillic',
                       'mk': 'cyrillic', 'be': 'cyrillic', 'kk': 'cyrillic', 'mn': 'cyrillic', 'ky': 'cyrillic',
                       'ar': 'arabic', 'fa': 'arabic', 'ur': 'arabic', 'ps': 'arabic', 'ug': 'arabic',
-                      'zh': 'cjk', 'ja': 'cjk', 'ko': 'cjk'}
+                      'zh': 'cjk', 'ja': 'cjk', 'ko': 'cjk', 'he': 'hebrew', 'hi': 'devanagari', 'mr': 'devanagari', 'ne': 'devanagari',
+                      'th': 'thai'}
 
 NAMES = {
     'en': 'English', 'ro': 'Romanian', 'de': 'German', 'fr': 'French', 'it': 'Italian', 'es': 'Spanish',
@@ -59,6 +67,7 @@ NAMES = {
     'tr': 'Turkish', 'el': 'Greek', 'ru': 'Russian', 'bg': 'Bulgarian', 'uk': 'Ukrainian', 'sr': 'Serbian',
     'mk': 'Macedonian', 'be': 'Belarusian', 'kk': 'Kazakh', 'mn': 'Mongolian', 'ky': 'Kyrgyz', 'ar': 'Arabic',
     'fa': 'Persian', 'ur': 'Urdu', 'ps': 'Pashto', 'ug': 'Uyghur', 'zh': 'Chinese', 'ja': 'Japanese', 'ko': 'Korean',
+    'he': 'Hebrew', 'hi': 'Hindi', 'mr': 'Marathi', 'ne': 'Nepali', 'th': 'Thai', 'vi': 'Vietnamese', 'id': 'Indonesian', 'ca': 'Catalan',
 }
 
 _identifier = None
@@ -98,7 +107,7 @@ def _script_share(text, script):
 
 def _enough_text(sample, script=None):
     letters = sum(char.isalpha() for char in sample)
-    if script == 'cjk':
+    if script in NO_WORD_SPACES:
         return letters >= 40
     return letters >= 80 and len(re.findall(r'\b\w+\b', sample)) >= 12
 
@@ -108,7 +117,7 @@ def confirmed(code, text):
     script = SCRIPT_OF_LANGUAGE.get(code)
     if script:
         share, hits = _script_share(text, script)
-        return share >= 0.6 and hits >= (20 if script == 'cjk' else 30)
+        return share >= 0.6 and hits >= (20 if script in NO_WORD_SPACES else 30)
     words = STOPWORDS.get(code)
     if not words:
         return False

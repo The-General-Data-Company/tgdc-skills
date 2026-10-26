@@ -27,6 +27,21 @@ RU = ('Подрядчик должен передать завершенные �
 EL = ('Ο ανάδοχος θα παραδώσει τα ολοκληρωμένα έργα στον πελάτη εντός της συμφωνημένης προθεσμίας και ο πελάτης '
       'θα ελέγξει τα έργα πριν από την τελική παραλαβή. Όλα τα σχέδια που επισυνάπτονται σε αυτή την επιστολή '
       'έχουν καταρτιστεί από την ομάδα μελέτης και περιγράφουν το δίκτυο ύδρευσης του χωριού. ')
+HE = ('הקבלן יעביר את העבודות שהושלמו ללקוח בתוך התקופה המוסכמת, והלקוח יבדוק את העבודות לפני הקבלה הסופית. '
+      'כל השרטוטים המצורפים למכתב זה הוכנו על ידי צוות התכנון והם מתארים את רשת אספקת המים של הכפר. ')
+HI = ('ठेकेदार पूरे किए गए काम को सहमत समय के भीतर ग्राहक को सौंपेगा और ग्राहक अंतिम स्वीकृति से पहले काम का निरीक्षण करेगा। '
+      'इस पत्र के साथ संलग्न सभी चित्र डिज़ाइन टीम द्वारा तैयार किए गए हैं और वे गाँव की जल आपूर्ति प्रणाली का वर्णन करते हैं। ')
+TH = ('ผู้รับเหมาจะส่งมอบงานที่แล้วเสร็จให้แก่ลูกค้าภายในระยะเวลาที่ตกลงกันไว้ และลูกค้าจะตรวจสอบงานก่อนการรับมอบขั้นสุดท้าย '
+      'แบบแปลนทั้งหมดที่แนบมากับจดหมายฉบับนี้จัดทำโดยทีมออกแบบและอธิบายระบบประปาของหมู่บ้าน ')
+VI = ('Nhà thầu sẽ bàn giao các công trình đã hoàn thành cho khách hàng trong thời hạn đã thỏa thuận, và khách hàng sẽ kiểm tra '
+      'các công trình trước khi nghiệm thu cuối cùng. Tất cả các bản vẽ đính kèm với thư này đã được nhóm thiết kế chuẩn bị '
+      'và chúng mô tả mạng lưới cấp nước của ngôi làng. ')
+ID = ('Pemerintah daerah mengumumkan bahwa pembangunan jaringan air bersih di desa akan dimulai pada bulan depan. Proyek ini dikerjakan '
+      'oleh kontraktor yang telah dipilih melalui proses tender, dan seluruh gambar teknis sudah disetujui oleh dinas pekerjaan umum. '
+      'Warga desa diharapkan dapat menikmati air bersih sebelum akhir tahun. ')
+CA = ('El contractista lliurarà les obres acabades al client dins del termini acordat, i el client inspeccionarà les obres abans '
+      'de la recepció final. Tots els plànols que s\'adjunten a aquesta carta han estat preparats per l\'equip de disseny i descriuen '
+      'la xarxa de subministrament d\'aigua del poble. ')
 
 
 class LanguageTests(unittest.TestCase):
@@ -34,6 +49,22 @@ class LanguageTests(unittest.TestCase):
         for code, text in [('en', EN), ('ro', RO), ('de', DE), ('fr', FR), ('ru', RU), ('el', EL)]:
             with self.subTest(code=code):
                 self.assertEqual(L.classify(text * 2), code)
+
+    def test_hebrew_hindi_and_thai_are_confirmed_by_script(self):
+        for code, text in [('he', HE), ('hi', HI), ('th', TH)]:
+            with self.subTest(code=code):
+                self.assertEqual(L.classify(text * 2), code)
+                self.assertEqual(L.language_name(code), {'he': 'Hebrew', 'hi': 'Hindi', 'th': 'Thai'}[code])
+
+    def test_vietnamese_indonesian_and_catalan_are_confirmed_by_common_words(self):
+        for code, text in [('vi', VI), ('id', ID), ('ca', CA)]:
+            with self.subTest(code=code):
+                self.assertEqual(L.classify(text * 2), code)
+                self.assertNotEqual(L.language_name(code), code)
+
+    def test_a_script_alone_does_not_confirm_a_language_it_was_not_proposed_for(self):
+        self.assertFalse(L.confirmed('he', EN * 2))
+        self.assertFalse(L.confirmed('th', RU * 2))
 
     def test_short_or_garbled_text_has_no_language(self):
         self.assertIsNone(L.classify('ok'))
