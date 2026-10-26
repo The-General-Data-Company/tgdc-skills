@@ -28,6 +28,8 @@ MAX_VECTOR_PAGES = 2000            # A4-like pages inspected per PDF; beyond tha
 MAX_TEXT_PAGES = 40
 MAX_FRAMES = 5000
 ATTACHMENT_KEYS = ('pdf', 'img')
+MARKUP_LIMIT = 1000000             # characters of an HTML body that are stripped; the language check needs far less
+MESSAGE_SECONDS = 30.0             # time budget of one message of an mbox file, attachments included
 
 
 def sha256_stream(stream, chunk=1024 * 1024):
@@ -251,9 +253,34 @@ def decode_plain(data):
         return data.decode('cp1250', 'replace')
 
 
+_BLOCK_OPEN = re.compile(r'<(script|style)\b', re.I)
+_BLOCK_CLOSE = {'script': re.compile(r'</script\s*>', re.I), 'style': re.compile(r'</style\s*>', re.I)}
+_TAG = re.compile(r'<[^<>]*>')
+
+
 def strip_markup(text):
-    text = re.sub(r'(?is)<(script|style).*?</\1>', ' ', text)
-    return unescape(re.sub(r'<[^>]+>', ' ', text))
+    """Text of an HTML body without tags, scripts and style sheets.
+
+    The input is cut at MARKUP_LIMIT characters and every step moves forward only: a closing tag that is missing once is missing
+    for the rest of the text, and a tag cannot contain another '<'. The time therefore grows linearly with the length, however
+    hostile the markup is."""
+    text = text[:MARKUP_LIMIT]
+    pieces, position, search_from, missing = [], 0, 0, set()
+    while True:
+        match = _BLOCK_OPEN.search(text, search_from)
+        if match is None:
+            break
+        name = match.group(1).lower()
+        close = None if name in missing else _BLOCK_CLOSE[name].search(text, match.end())
+        if close is None:
+            missing.add(name)
+            search_from = match.end()
+            continue
+        pieces.append(text[position:match.start()])
+        pieces.append(' ')
+        position = search_from = close.end()
+    pieces.append(text[position:])
+    return unescape(_TAG.sub(' ', ''.join(pieces)))
 
 
 def strip_rtf(text):
@@ -372,8 +399,25 @@ def _header_year(message):
         return None
 
 
+def body_key(message, normalized):
+    """Short key of a message that has no Message-ID: its Date, From and Subject headers and the text of its bodies.
+
+    Two exports of the same message carry the same headers and text, whatever the file format around them."""
+    material = [' '.join(str(message.get(name, '')).split()) for name in ('Date', 'From', 'Subject')] + sorted(set(normalized))
+    if not any(material):
+        return None
+    return 'b:' + hashlib.sha256('\n'.join(material).encode('utf-8', 'replace')).hexdigest()[:16]
+
+
+def message_key(facts):
+    """The identity of a message in the facts: the short hash of its Message-ID, else its body key, else None."""
+    return facts.get('mid') or facts.get('bid')
+
+
 def analyze_message(data, attachments=True, deadline=None):
-    """Facts of one RFC 822 message: ids as short hashes, no addresses, no text."""
+    """Facts of one RFC 822 message: ids as short hashes, no addresses, no text.
+
+    When the deadline passes, the remaining attachments are skipped and the message is marked partial."""
     message = BytesParser(policy=policy.default).parsebytes(data)
     facts = {'size': len(data)}
     message_id = str(message.get('Message-ID', '')).strip()
@@ -383,7 +427,7 @@ def analyze_message(data, attachments=True, deadline=None):
     facts['from'] = short_hash(senders[0]) if senders else None
     recipients = _addresses(message, ['Delivered-To']) + _addresses(message, ['To'])
     facts['to'] = sorted({short_hash(address) for address in recipients})[:40]
-    bodies, plain, html, found = [], [], [], []
+    bodies, plain, html, found, normalized = [], [], [], [], []
     for part in message.walk():
         if part.is_multipart():
             continue
@@ -403,9 +447,14 @@ def analyze_message(data, attachments=True, deadline=None):
                 content = payload.decode('utf-8', 'replace')
             bodies.append(digest)
             bodies.append(hashlib.sha256(content.encode('utf-8', 'replace')).hexdigest())
+            content = content[:MARKUP_LIMIT]
+            normalized.append(hashlib.sha256(' '.join(content.split()).encode('utf-8', 'replace')).hexdigest())
             (plain if kind == 'text/plain' else html).append(content)
             continue
         if not attachments:
+            continue
+        if deadline is not None and time.monotonic() > deadline:
+            facts['partial'] = True
             continue
         extension = raw_extension(filename or '')
         record = {'sha': hashlib.sha256(payload).hexdigest(), 'ext': extension, 'size': len(payload),
@@ -419,27 +468,35 @@ def analyze_message(data, attachments=True, deadline=None):
         found.append(record)
     facts['bodies'] = sorted(set(bodies))
     facts['atts'] = found
+    if not message_id:
+        key = body_key(message, normalized)
+        if key:
+            facts['bid'] = key
     body = '\n'.join(plain) if plain else strip_markup('\n'.join(html))
     facts['lang'] = spec_language.analyze_text(body)
     return facts
 
 
-def iter_mbox(stream, max_message_bytes):
-    """Yield (message bytes, truncated) for each message of an mbox file, streaming."""
+def iter_mbox(stream, max_message_bytes, skip=None):
+    """Yield (message bytes, truncated) for each message of an mbox file, streaming.
+
+    When skip() is true at the start of a message, the message is counted but not collected: (None, False)."""
     current = []
     size = 0
     truncated = False
+    skipping = False
     previous_blank = True
     started = False
     for line in stream:
         if line.startswith(b'From ') and previous_blank:
             if started:
-                yield b''.join(current), truncated
+                yield (None if skipping else b''.join(current)), truncated
             current, size, truncated, started = [], 0, False, True
+            skipping = bool(skip and skip())
             previous_blank = False
             continue
         previous_blank = line in (b'\n', b'\r\n')
-        if not started:
+        if not started or skipping:
             continue
         if size < max_message_bytes:
             current.append(line)
@@ -447,18 +504,25 @@ def iter_mbox(stream, max_message_bytes):
         else:
             truncated = True
     if started:
-        yield b''.join(current), truncated
+        yield (None if skipping else b''.join(current)), truncated
 
 
-def analyze_mbox(stream, known_ids, max_message_bytes, deadline=None):
-    """Facts of an mbox file. Messages already known from loose .eml files are recorded by id only."""
+def analyze_mbox(stream, known_ids, max_message_bytes, deadline=None, message_seconds=None):
+    """Facts of an mbox file. Messages already known from loose .eml files are recorded by id only.
+
+    count is the number of messages in the file. Messages that start after the deadline are counted and not analyzed (cut);
+    messages whose attachments were skipped, whose size was cut or that could not be read are listed as partial."""
     messages = []
-    total = 0
-    for data, truncated in iter_mbox(stream, max_message_bytes):
+    total = cut = partial = 0
+    budget = MESSAGE_SECONDS if message_seconds is None else message_seconds
+    for data, truncated in iter_mbox(stream, max_message_bytes, lambda: deadline is not None and time.monotonic() > deadline):
         total += 1
-        if deadline is not None and time.monotonic() > deadline:
-            messages.append({'mid': None, 'timeout': True})
+        if data is None:
+            cut += 1
             continue
+        limit = time.monotonic() + budget
+        if deadline is not None:
+            limit = min(limit, deadline)
         try:
             message = BytesParser(policy=policy.default).parsebytes(data, headersonly=True)
             message_id = str(message.get('Message-ID', '')).strip()
@@ -469,11 +533,16 @@ def analyze_mbox(stream, known_ids, max_message_bytes, deadline=None):
             messages.append({'mid': mid, 'known': True, 'size': len(data)})
             continue
         try:
-            facts = analyze_message(data, attachments=not truncated, deadline=deadline)
+            facts = analyze_message(data, attachments=not truncated, deadline=limit)
         except Exception:
             facts = {'mid': mid, 'size': len(data), 'unreadable': True}
+        if not mid and facts.get('bid') in known_ids:
+            messages.append({'mid': None, 'bid': facts['bid'], 'known': True, 'size': len(data)})
+            continue
+        if truncated or facts.get('partial') or facts.get('unreadable'):
+            partial += 1
         messages.append(facts)
-    return {'count': total, 'messages': messages}
+    return {'count': total, 'messages': messages, 'cut': cut, 'partial': partial}
 
 
 # ----------------------------------------------------------------------------- one document, any context

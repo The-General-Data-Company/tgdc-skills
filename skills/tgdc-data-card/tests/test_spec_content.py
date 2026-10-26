@@ -1,8 +1,11 @@
 """Per-content analyzers on synthetic bytes."""
 import io
+import re
 import sys
+import time
 import unittest
 from pathlib import Path
+from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'scripts'))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -125,6 +128,119 @@ class MailTests(unittest.TestCase):
         self.assertTrue(result['messages'][0]['known'])
         self.assertEqual(result['messages'][1]['lang']['lang'], 'en')
         self.assertEqual(result['messages'][1]['year'], 2023)
+
+
+class MarkupTests(unittest.TestCase):
+    def timed(self, text):
+        started = time.monotonic()
+        result = C.strip_markup(text)
+        return result, time.monotonic() - started
+
+    def test_tags_and_script_blocks_are_removed(self):
+        text, _ = self.timed('<p>Hello <b>world</b></p><script>var secret = 1;</script><style>p { color: red }</style><SCRIPT type="x">more()</SCRIPT> end &amp; done')
+        self.assertEqual(' '.join(text.split()), 'Hello world end & done')
+
+    def test_unclosed_script_and_tag_floods_take_linear_time(self):
+        for text in ('<script>' * 60000, '<' * 400000, '<a ' * 150000, '<style>x' * 60000 + '</script>', '<script' * 80000):
+            with self.subTest(sample=text[:12]):
+                result, seconds = self.timed(text)
+                self.assertLess(seconds, 2.0)
+                self.assertIsInstance(result, str)
+
+    def test_input_is_capped_at_about_one_megabyte(self):
+        result, seconds = self.timed('word ' * 3000000)
+        self.assertLessEqual(len(result), C.MARKUP_LIMIT)
+        self.assertLess(seconds, 2.0)
+
+    def test_a_plain_less_than_sign_stays_text(self):
+        text, _ = self.timed('if a < b then c')
+        self.assertEqual(text, 'if a < b then c')
+
+
+class MboxBudgetTests(unittest.TestCase):
+    def mbox(self, messages):
+        import tempfile
+        folder = tempfile.TemporaryDirectory()
+        self.addCleanup(folder.cleanup)
+        path = Path(folder.name) / 'x.mbox'
+        import mailbox
+        box = mailbox.mbox(str(path))
+        for data in messages:
+            box.add(data)
+        box.flush()
+        box.close()
+        return path
+
+    def messages(self, count, ids=True):
+        data = [S.eml_bytes(f'Note {n}', 'Ann <ann@example.test>', 'Owner <owner@example.test>', S.EN * 3 + f' number {n}.', year=2022,
+                            message_id=f'<n{n}@example.test>') for n in range(count)]
+        return data if ids else [re.sub(rb'(?m)^Message-ID:.*\n', b'', item) for item in data]
+
+    def test_messages_past_the_deadline_are_still_counted_and_reported_as_cut(self):
+        path = self.mbox(self.messages(30))
+        with open(path, 'rb') as stream:
+            result = C.analyze_mbox(stream, set(), 1 << 20, deadline=time.monotonic() - 1)
+        self.assertEqual(result['count'], 30)
+        self.assertEqual(result['cut'], 30)
+        self.assertEqual(result['messages'], [])
+
+    def test_a_deadline_in_the_middle_keeps_the_total(self):
+        path = self.mbox(self.messages(40))
+        original = C.analyze_message
+        calls = []
+
+        def slow(*args, **kwargs):
+            calls.append(1)
+            time.sleep(0.02)
+            return original(*args, **kwargs)
+        with open(path, 'rb') as stream, mock.patch.object(C, 'analyze_message', slow):
+            result = C.analyze_mbox(stream, set(), 1 << 20, deadline=time.monotonic() + 0.1)
+        self.assertEqual(result['count'], 40)
+        self.assertEqual(len(result['messages']) + result['cut'], 40)
+        self.assertGreater(result['cut'], 0)
+        self.assertGreater(len(result['messages']), 0)
+
+    def test_a_message_over_its_budget_skips_the_rest_of_its_attachments_and_is_reported(self):
+        pdfs = [('a.pdf', S.pdf_bytes([('text', S.A4P, 1)]), 'application/pdf'), ('b.pdf', S.pdf_bytes([('text', S.A4P, 2)]), 'application/pdf')]
+        data = S.eml_bytes('With files', 'Ann <ann@example.test>', 'Owner <owner@example.test>', S.EN * 3, attachments=pdfs)
+        facts = C.analyze_message(data, deadline=time.monotonic() - 1)
+        self.assertTrue(facts['partial'])
+        self.assertEqual(facts['atts'], [])
+        whole = C.analyze_message(data)
+        self.assertNotIn('partial', whole)
+        self.assertEqual(len(whole['atts']), 2)
+        path = self.mbox([data])
+        with open(path, 'rb') as stream, mock.patch.object(C, 'MESSAGE_SECONDS', -1):
+            result = C.analyze_mbox(stream, set(), 1 << 20)
+        self.assertEqual((result['count'], result['cut'], result['partial']), (1, 0, 1))
+
+    def test_a_truncated_message_is_counted_as_partial(self):
+        data = S.eml_bytes('Large', 'Ann <ann@example.test>', 'Owner <owner@example.test>', 'x ' * 50000)
+        path = self.mbox([data])
+        with open(path, 'rb') as stream:
+            result = C.analyze_mbox(stream, set(), 1000)
+        self.assertEqual((result['count'], result['partial']), (1, 1))
+
+    def test_messages_without_an_id_get_a_body_key_that_matches_across_formats(self):
+        one, two = self.messages(2, ids=False)
+        first = C.analyze_message(one)
+        again = C.analyze_message(one.replace(b'\n', b'\r\n') if b'\r\n' not in one else one)
+        self.assertIsNone(first['mid'])
+        self.assertTrue(first['bid'].startswith('b:'))
+        self.assertEqual(first['bid'], again['bid'])
+        self.assertNotEqual(first['bid'], C.analyze_message(two)['bid'])
+        self.assertEqual(C.message_key(first), first['bid'])
+        with_id = C.analyze_message(self.messages(1)[0])
+        self.assertNotIn('bid', with_id)
+        self.assertEqual(C.message_key(with_id), with_id['mid'])
+
+    def test_known_messages_without_an_id_are_recognized_by_their_body_key(self):
+        one, two = self.messages(2, ids=False)
+        path = self.mbox([one, two])
+        with open(path, 'rb') as stream:
+            result = C.analyze_mbox(stream, {C.analyze_message(one)['bid']}, 1 << 20)
+        self.assertTrue(result['messages'][0]['known'])
+        self.assertNotIn('known', result['messages'][1])
 
 
 if __name__ == '__main__':

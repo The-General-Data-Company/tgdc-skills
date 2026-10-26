@@ -10,6 +10,7 @@ from datetime import datetime, timezone
 
 import spec_language
 import spec_taxonomy as T
+from spec_content import message_key
 from spec_taxonomy import (A4_LIKE, ARCHIVE_EXTENSIONS, CREDENTIALS, EXAMINED_CATEGORIES, SCRIPT_LOG_EXTENSIONS, TEXT_EXTRACTABLE,
                            extension_label, fold, label_of_extension, matches_any, raw_extension)
 
@@ -206,7 +207,7 @@ class Build:
             record.mclass, record.part, record.category = None, False, None
             if record.status in ('io_error', 'changed', 'error'):
                 self.unreadable['unreadable'] += 1
-            elif record.status in ('timeout', 'crashed'):
+            elif record.status in ('timeout', 'crashed') or (record.mbox and record.mbox.get('cut')):
                 self.unreadable['limited'] += 1
             self.records.append(record)
         leaders = {record.entry.id: record.arch for record in self.records}
@@ -220,34 +221,62 @@ class Build:
             record.label = extension_label(entry.name, multipart_part=record.part)
 
     # ------------------------------------------------------------------ mailboxes
+    @staticmethod
+    def unseen(messages, seen):
+        """The analyzed messages of an .mbox whose key is not in seen yet; they are added to seen. Repeats are marked and left out.
+
+        A message is a repeat when another .eml file or .mbox file of the same mailbox already holds it. Known markers and
+        messages without a key are never repeats of each other."""
+        fresh = []
+        for message in messages:
+            if message.get('known'):
+                continue
+            key = message_key(message)
+            if key and key in seen:
+                message['dup'] = True
+                continue
+            if key:
+                seen.add(key)
+            fresh.append(message)
+        return fresh
+
     def classify_mailboxes(self):
         for index in range(len(self.cfg['mailboxes'])):
             members = [r for r in self.records if r.mailbox == index]
             emls = [r for r in members if r.ext == 'eml']
             messages = [r.mail for r in emls if r.mail]
-            eml_ids = {m['mid'] for m in messages if m.get('mid')}
+            eml_ids = {key for key in map(message_key, messages) if key}
+            seen, mbox_ids = set(eml_ids), set()
             for record in emls:
                 record.mclass = 'eml'
             alt_mbox, primary_mbox = [], []
-            primary_count = extra_count = 0
+            primary_count = extra_count = incomplete = unread = 0
             for record in members:
-                if record.ext != 'mbox' or not record.mbox:
+                if record.ext != 'mbox':
                     continue
-                ids = {m['mid'] for m in record.mbox['messages'] if m.get('mid')}
+                if not record.mbox:
+                    unread += 0 if record.cred else 1       # a mailbox file that could not be read is not a mailbox with no mail
+                    continue
+                ids = {key for key in map(message_key, record.mbox['messages']) if key}
                 inside = len(ids & eml_ids)
-                # Same messages when the .mbox holds at least 95% of the .eml set, or the .eml set holds at least 95% of the .mbox.
+                # Same messages when the .mbox holds at least 95% of the .eml set, or the .eml set holds at least 95% of the .mbox,
+                # or an earlier .mbox file of the mailbox already holds at least 95% of it (a copy, or an export of the same messages).
                 same = bool(eml_ids and ids) and max(inside / len(eml_ids), inside / len(ids)) >= OVERLAP
-                unknown = [m for m in record.mbox['messages'] if not m.get('known') and not m.get('timeout')]
+                repeat = bool(ids) and len(ids & mbox_ids) / len(ids) >= OVERLAP
+                mbox_ids |= ids
+                unknown = self.unseen(record.mbox['messages'], seen)
                 messages.extend(unknown)       # messages that exist only in the .mbox (for example the sent folder) still belong to the account
-                if same:
+                cut = record.mbox.get('cut', 0)
+                incomplete += cut + record.mbox.get('partial', 0)
+                if same or repeat:
                     record.mclass = 'alt_mbox'
                     alt_mbox.append(record)
                     extra_count += len(unknown)
                 else:
                     record.mclass = 'mbox_primary'
                     primary_mbox.append(record)
-                    primary_count += len(unknown)
-            if not emls and not alt_mbox and not primary_mbox:
+                    primary_count += len(unknown) + cut      # messages that were not analyzed still count; their keys are unknown
+            if not emls and not alt_mbox and not primary_mbox and not unread:
                 # a declared mailbox root that holds no mail is an ordinary folder
                 for record in members:
                     record.mailbox, record.mclass = None, None
@@ -277,14 +306,16 @@ class Build:
                     if matched / len(record.arch_hashes) >= OVERLAP:
                         record.mclass = 'alt_archive'
             self.mail[index] = {'members': members, 'messages': messages, 'eml_count': len(emls), 'primary_messages': primary_count,
-                                'extra_messages': extra_count}
+                                'extra_messages': extra_count, 'incomplete': incomplete, 'unread_files': unread}
         # e-mail held outside configured mailboxes still contributes attachments and language
+        outside = set()
         for record in self.records:
             if record.mailbox is None:
                 if record.mail:
                     self.messages.append(record.mail)
+                    outside.add(message_key(record.mail))
                 if record.mbox:
-                    self.messages.extend(m for m in record.mbox['messages'] if not m.get('known') and not m.get('timeout'))
+                    self.messages.extend(self.unseen(record.mbox['messages'], outside))
         for result in self.mail.values():
             self.messages.extend(result['messages'])
 
@@ -399,7 +430,7 @@ class Build:
         for record in self.records:
             if record.mbox:
                 for message in record.mbox['messages']:
-                    if message.get('lang') and not message.get('known'):
+                    if message.get('lang') and not message.get('known') and not message.get('dup'):
                         language.append((message['lang']['lang'], message.get('size', 0), True, message['lang']['chunks'], False))
         # ---------------------------------------------------------------- pass 2: archive members
         members_total, members_new = [0, 0], [0, 0]
@@ -560,12 +591,14 @@ class Build:
             business = [r for r in members if r.mclass in BUSINESS]
             messages = result['eml_count'] + result['primary_messages'] + result['extra_messages']
             row = {'label': mailbox['label'], 'messages': messages, 'bytes': sum(r.size for r in business), 'files': len(business)}
+            if result['incomplete'] or result['unread_files']:
+                row['incomplete'] = {'messages': result['incomplete'], 'files': result['unread_files']}
             if result['extra_messages'] and result['eml_count']:
                 row['held_messages'] = result['eml_count']       # the .mbox holds the whole account, the .eml files only part of it
             years = [m['year'] for m in result['messages'] if m.get('year') and MIN_YEAR <= m['year'] <= self.year_now]
             if years:
                 row['period'] = [min(years), max(years)]
-            kinds = {r.ext for r in business if r.mclass in ('eml', 'mbox_primary')}
+            kinds = {r.ext for r in business if r.mclass in ('eml', 'mbox_primary')} or {r.ext for r in members if r.ext in ('eml', 'mbox')}
             row['format'] = 'eml' if 'eml' in kinds and 'mbox' not in kinds else ('mbox' if kinds == {'mbox'} else 'eml+mbox')
             meta = Counter(label_of_extension(r.ext) for r in business if r.mclass == 'meta')
             if meta:

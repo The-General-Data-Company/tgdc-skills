@@ -30,7 +30,7 @@ from profiler import (checked_path, open_nofollow, output_directory, prepare_roo
 from spec_taxonomy import is_short_label, is_sensitive_path, raw_extension
 
 SCHEMA = 'tgdc-format-spec/1.0'
-ENGINE = 4
+ENGINE = 5
 CACHE_NAME = 'spec-cache.private.sqlite'
 SETTINGS_DEFAULTS = {
     'parse_seconds': 300.0, 'archive_seconds': 7200.0, 'member_parse_bytes': 128 * 1024 * 1024,
@@ -430,7 +430,7 @@ def process_task(task, settings, stage, descriptors):
                 result['unreadable'] = True
             elif extension == 'mbox':
                 stream.seek(0)
-                result['mbox'] = spec_content.analyze_mbox(stream, set(task.get('known', ())), settings['max_message_bytes'],
+                result['mbox'] = spec_content.analyze_mbox(stream, settings.get('known', {}).get(task.get('mailbox'), ()), settings['max_message_bytes'],
                                                            deadline=now + settings['archive_seconds'])
             elif role == 'leader' and task.get('style') == 'num':
                 result['arch'] = _read_archive(task, streams, size, name, None, settings)
@@ -725,9 +725,10 @@ def run_spec(sources, output, config=None, workers=None, limits=None, tools=None
             if first:
                 run_pool(first, count, settings, handle)
             if second:
+                # The message ids of each mailbox are built once and reach every worker once, with its settings, not with every task.
                 known_ids = mailbox_message_ids(cache, entries, cfg)
-                tasks = [task_for(entry, {'known': sorted(known_ids.get(mailbox_of(entry, cfg), ()))}) for entry in second]
-                run_pool(tasks, count, settings, handle)
+                tasks = [task_for(entry, {'mailbox': mailbox_of(entry, cfg)}) for entry in second]
+                run_pool(tasks, count, {**settings, 'known': {index: frozenset(ids) for index, ids in known_ids.items() if index is not None}}, handle)
         except (SpecInterrupted, KeyboardInterrupt):
             cache.commit()
             raise SpecInterrupted()
@@ -761,12 +762,12 @@ def mailbox_of(entry, cfg):
 
 
 def mailbox_message_ids(cache, entries, cfg):
-    """Message ids of the loose .eml files of each mailbox, for skipping duplicate messages inside .mbox files."""
+    """Message keys (Message-ID hash, else body key) of the loose .eml files of each mailbox, for skipping duplicate messages inside .mbox files."""
     by_id = {entry.id: entry for entry in entries}
     found = defaultdict(set)
     for identifier, result in cache.results(wanted=by_id, suffix='.eml'):
         mail = result.get('mail')
         entry = by_id[identifier]
-        if mail and mail.get('mid') and raw_extension(entry.name) == 'eml':
-            found[mailbox_of(entry, cfg)].add(mail['mid'])
+        if mail and spec_content.message_key(mail) and raw_extension(entry.name) == 'eml':
+            found[mailbox_of(entry, cfg)].add(spec_content.message_key(mail))
     return found

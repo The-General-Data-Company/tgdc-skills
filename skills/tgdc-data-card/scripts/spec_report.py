@@ -640,6 +640,9 @@ def mailbox_other_text(box):
         pieces.append(f"{noun(held, 'received message')} held; volume and attachment figures increase once the sent messages are added")
     if box.get('other_files'):
         pieces.append(plural(box['other_files'], 'other file'))
+    incomplete = box.get('incomplete')
+    if incomplete and incomplete['messages']:
+        pieces.append(f"{plural(incomplete['messages'], 'message')} not analyzed in full")
     return '; '.join(pieces)
 
 
@@ -883,6 +886,19 @@ def notes(spec):
         count = method['unreadable_files'] + method['time_limited_files']
         items.append(f"{plural(count, 'file')} could not be read completely (access problem, change during the run or a time limit); "
                      f"{'it is' if count == 1 else 'they are'} counted by size and, where available, by content hash only.")
+    for box in spec.get('mailboxes', ()):
+        incomplete = box.get('incomplete')
+        if not incomplete:
+            continue
+        pieces = []
+        if incomplete['messages']:
+            count = incomplete['messages']
+            pieces.append(f"{plural(count, 'message')} {'was' if count == 1 else 'were'} counted but not analyzed in full (time or size limit), so "
+                          f"{'its' if count == 1 else 'their'} attachments, dates and languages are missing from the figures")
+        if incomplete['files']:
+            count = incomplete['files']
+            pieces.append(f"{plural(count, 'mailbox file')} could not be read (time limit or access problem) and {'is' if count == 1 else 'are'} not counted")
+        items.append(f"{box['label']}: " + '; '.join(pieces) + '. Run the pass again with a larger time limit to complete the figures.')
     if method['hidden_entries']:
         items.append(f"{plural(method['hidden_entries'], 'hidden file or folder', 'hidden files and folders')} (names that start with a dot) "
                      f"{'was' if method['hidden_entries'] == 1 else 'were'} not entered and not counted.")
