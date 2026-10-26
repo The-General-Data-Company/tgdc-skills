@@ -655,10 +655,10 @@ class Reader:
         listing.code = code
         return listing
 
-    def plan(self, listing, prefix, record_flagged):
-        """Sort the listed files. Returns (wanted {path: size}, unsafe, encrypted, flagged count). Flagged files are credential-named
-        or hidden; when the tool never writes them they are recorded here, by name and listed size."""
-        wanted, unsafe, encrypted, flagged = {}, 0, 0, 0
+    def plan(self, listing):
+        """Sort the listed files. Returns (wanted {path: size}, unsafe, encrypted, flagged [(flag, path, size)]). Flagged files are
+        credential-named or hidden."""
+        wanted, flagged, unsafe, encrypted = {}, [], 0, 0
         for path, size, is_encrypted in listing.files:
             if unsafe_name(path):
                 unsafe += 1
@@ -667,9 +667,7 @@ class Reader:
             else:
                 flag = classify_member(path)
                 if flag:
-                    flagged += 1
-                    if record_flagged:
-                        self.record_flagged(flag, path, size, prefix)
+                    flagged.append((flag, path, size))
                 else:
                     wanted[path] = size
         return wanted, unsafe, encrypted, flagged
@@ -692,7 +690,6 @@ class Reader:
                 return listing
             if listing.code != 0:
                 problems += 1
-            self.links += listing.links
             declared = sum(size for _, size, _ in listing.files)
             if listing.complete:
                 if declared > self.allowance():
@@ -700,7 +697,7 @@ class Reader:
                 if shutil.disk_usage(folder).free < declared * 1.1 + 1024 * 1024:
                     return 'space'
             seven = tool in ('7zz', '7z')
-            wanted, unsafe, encrypted, flagged = self.plan(listing, prefix, record_flagged=seven)
+            wanted, unsafe, encrypted, flagged = self.plan(listing)
             sizes = {unicodedata.normalize('NFC', path): size for path, size in wanted.items()}
             if seven:
                 if wanted:
@@ -720,7 +717,7 @@ class Reader:
                 if code != 0 and not any(os.scandir(destination)):
                     return False
                 problems += 1 if code != 0 else 0
-                expected = len(wanted) + flagged if listing.complete else None
+                expected = len(wanted) + len(flagged) if listing.complete else None
                 sizes = sizes if listing.complete else {}
             self.lose(unsafe + encrypted)
             problems += unsafe + encrypted
@@ -732,6 +729,10 @@ class Reader:
             return False
         self.opened += 1
         self.used[f'{kind}:{tool}'] += 1
+        self.links += listing.links
+        if seven:                       # these were never written to disk: counted from the listing, by name and listed size
+            for flag, path, size in flagged:
+                self.record_flagged(flag, path, size, prefix)
         found, shorts = self.walk_extracted(destination, depth, prefix, sizes, record_flagged=not seven)
         if expected is not None:
             missing = max(0, expected - found)
