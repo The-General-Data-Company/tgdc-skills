@@ -54,6 +54,14 @@ class Loose:
                  'part', 'arch', 'arch_hashes', 'year', 'mtime_year', 'mail', 'mbox')
 
 
+MAX_TIMESTAMP = 253402300799        # 9999-12-31 23:59:59 UTC, the last second a calendar date can hold
+
+
+def year_of_ns(nanoseconds):
+    """Year of a file date. A date before 1970 or after year 9999 is clamped to 1970 or 9999; both count as 'date not reliable'."""
+    return datetime.fromtimestamp(min(max(nanoseconds / 1e9, 0), MAX_TIMESTAMP), timezone.utc).year
+
+
 def revision_stem(name, extra=()):
     """File name without revision markers, dates and copy markers; '' when nothing meaningful is left."""
     stem = fold(name.rsplit('/', 1)[-1])
@@ -203,7 +211,7 @@ class Build:
                 if record.mailbox is not None:
                     record.arch_hashes = [m['h'] for m in members if m.get('h')]
             record.year = result.get('year') or (record.mail or {}).get('year')
-            record.mtime_year = datetime.fromtimestamp(entry.mtime_ns / 1e9, timezone.utc).year
+            record.mtime_year = year_of_ns(entry.mtime_ns)
             record.mclass, record.part, record.category = None, False, None
             if record.status in ('io_error', 'changed', 'error'):
                 self.unreadable['unreadable'] += 1
@@ -762,7 +770,7 @@ class Build:
         stages = cfg.get('stages')
         if stages:
             names = [item['name'] for item in stages['items']]
-            thresholds = stages['thresholds'] or [k for k in T.default_thresholds(len(names)) if k <= len(names)]
+            thresholds = stages['thresholds'] or T.default_thresholds(len(names))
             levels = []
             for k in thresholds:
                 chosen = [key for key, info in projects.items() if len(info['stages']) >= k]

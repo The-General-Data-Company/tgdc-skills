@@ -316,5 +316,47 @@ class SpecRunTests(unittest.TestCase):
         self.assertNotIn('@', text)
 
 
+class DateGuardTests(unittest.TestCase):
+    def test_the_year_of_a_file_date_is_clamped_into_the_calendar_and_so_counts_as_not_reliable(self):
+        import spec_aggregate as A
+        from datetime import timezone
+        self.assertEqual(A.year_of_ns(datetime(2020, 6, 1, tzinfo=timezone.utc).timestamp() * 1e9), 2020)
+        for value in (10 ** 21, 10 ** 30, 2 ** 63 - 1):
+            self.assertGreater(A.year_of_ns(value), 2200 - 1)
+            self.assertLessEqual(A.year_of_ns(value), 9999)
+        for value in (0, -1, -10 ** 19, -2 ** 63, -10 ** 30):
+            self.assertEqual(A.year_of_ns(value), 1970)
+        self.assertEqual(A.year_of_ns(10 ** 30), 9999)
+
+    def test_the_cache_stores_a_date_beyond_the_integer_range_without_failing(self):
+        import types
+        self.assertEqual(formatspec.stored_ns(10 ** 21), 2 ** 63 - 1)
+        self.assertEqual(formatspec.stored_ns(-10 ** 21), -2 ** 63)
+        self.assertEqual(formatspec.stored_ns(5), 5)
+        import sqlite3
+        with tempfile.TemporaryDirectory() as folder:
+            descriptor = os.open(folder, os.O_RDONLY)
+            try:
+                cache = formatspec.Cache(descriptor, Path(folder) / 'c.sqlite')
+                entry = types.SimpleNamespace(id=b'0:a', root=0, rel='a', size=3, mtime_ns=10 ** 21)
+                cache.put(entry, {'status': 'ok'})
+                self.assertEqual(cache.index()[b'0:a'], (3, 2 ** 63 - 1))
+                cache.close()
+            finally:
+                os.close(descriptor)
+
+    def test_dates_at_the_ends_of_the_file_system_range_are_shown_as_not_reliable(self):
+        with tempfile.TemporaryDirectory() as folder:
+            base = Path(folder).resolve()
+            data = base / 'data'
+            data.mkdir()
+            for name, nanoseconds in (('far.txt', 2 ** 63 - 1), ('past.txt', -2 ** 63), ('normal.txt', int(datetime(2021, 6, 1).timestamp() * 1e9))):
+                (data / name).write_text(name * 30)
+                os.utime(data / name, ns=(nanoseconds, nanoseconds))
+            spec = formatspec.run_spec([data], base / 'out', workers=1, tools={}, report_date=NOW, log=LOG)
+            self.assertEqual(spec['years']['unreliable']['files'], 2)
+            self.assertEqual([row['year'] for row in spec['years']['rows']], [2021])
+
+
 if __name__ == '__main__':
     unittest.main()

@@ -109,6 +109,18 @@ class TaxonomyTests(unittest.TestCase):
         self.assertEqual(T.default_thresholds(7), [4, 5, 6])
         self.assertEqual(T.default_thresholds(9), [5, 6, 7])
         self.assertEqual(T.default_thresholds(4), [2, 3, 4])
+        self.assertEqual(T.default_thresholds(5), [3, 4, 5])
+
+    def test_default_thresholds_never_exceed_the_number_of_stages(self):
+        for stages in range(1, 12):
+            with self.subTest(stages=stages):
+                thresholds = T.default_thresholds(stages)
+                self.assertTrue(thresholds)
+                self.assertTrue(all(1 <= k <= stages for k in thresholds), thresholds)
+                self.assertEqual(thresholds, sorted(set(thresholds)))
+        self.assertEqual(T.default_thresholds(1), [1])
+        self.assertEqual(T.default_thresholds(2), [1, 2])
+        self.assertEqual(T.default_thresholds(3), [2, 3])
         self.assertEqual(T.count(1234567), '1,234,567')
         self.assertEqual(T.gigabytes(290.33e9), '290.33')
         self.assertEqual(T.gigabytes(12.3456e9, 3), '12.346')

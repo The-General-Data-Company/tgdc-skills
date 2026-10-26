@@ -158,7 +158,7 @@ def validate_calibration(value):
     if value['schematics'] > value['true_drawings_among_candidates'] + value['drawings_among_non_candidates']:
         raise SpecConfigError('calibration.schematics exceeds the true drawings.')
     views = value['views_per_sheet']
-    if not isinstance(views, list) or any(isinstance(v, bool) or not isinstance(v, int) or not 1 <= v <= 200 for v in views):
+    if not isinstance(views, list) or not views or any(isinstance(v, bool) or not isinstance(v, int) or not 1 <= v <= 200 for v in views):
         raise SpecConfigError('calibration.views_per_sheet must list counts of views per sheet.')
     return {'sampled': dict(sampled), 'true_drawings_among_candidates': value['true_drawings_among_candidates'],
             'drawings_among_non_candidates': value['drawings_among_non_candidates'], 'schematics': value['schematics'],
@@ -301,6 +301,11 @@ def fingerprint(settings, cfg):
             'mailboxes': sorted([mailbox['root'], mailbox['prefix']] for mailbox in cfg['mailboxes'])}
 
 
+def stored_ns(nanoseconds):
+    """A file date as the cache holds it: SQLite integers have 64 bits, and some file systems report dates beyond that."""
+    return max(-2 ** 63, min(nanoseconds, 2 ** 63 - 1))
+
+
 class Cache:
     def __init__(self, directory_descriptor, path):
         flags = os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW
@@ -325,7 +330,7 @@ class Cache:
 
     def put(self, entry, result):
         self.db.execute('INSERT OR REPLACE INTO files VALUES(?,?,?,?,?,?,?)',
-                        (entry.id, entry.root, os.fsencode(entry.rel), entry.size, entry.mtime_ns, result.get('status', 'ok'),
+                        (entry.id, entry.root, os.fsencode(entry.rel), entry.size, stored_ns(entry.mtime_ns), result.get('status', 'ok'),
                          json.dumps(result, ensure_ascii=False, separators=(',', ':'))))
         self.pending += 1
         if self.pending >= 200:
@@ -741,7 +746,7 @@ def run_spec(sources, output, config=None, workers=None, limits=None, tools=None
         by_id = {entry.id: entry for entry in entries}
         todo, done_files, done_bytes = [], 0, 0
         for entry in entries:
-            if known.get(entry.id) == (entry.size, entry.mtime_ns):
+            if known.get(entry.id) == (entry.size, stored_ns(entry.mtime_ns)):
                 done_files += 1
                 done_bytes += entry.size
             else:

@@ -729,7 +729,7 @@ def archive_section(spec):
 
 def detail_rows(spec):
     drawings = spec['drawings']
-    step, fine = steps(drawings['sheets'])
+    _, fine = steps(drawings['sheets'])
     rows = [('Total', 'sheets', detail(drawings['sheets'], fine)), ('Total', 'engineering drawings', detail(drawings['engineering'], fine))]
     if drawings['schematics']:
         rows.append(('Total', 'schematics / diagrams', detail(drawings['schematics'], fine)))

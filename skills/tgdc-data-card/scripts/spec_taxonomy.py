@@ -229,8 +229,9 @@ def matches_any(patterns, text):
 
 
 def default_thresholds(stage_count):
+    """ceil(n/2), ceil(n/2)+1 and ceil(n/2)+2, none above the number of stages."""
     base = math.ceil(stage_count / 2)
-    return [base, base + 1, base + 2]
+    return [k for k in (base, base + 1, base + 2) if k <= stage_count]
 
 
 # Number formats.

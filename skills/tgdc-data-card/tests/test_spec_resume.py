@@ -252,6 +252,8 @@ class SafetyTests(unittest.TestCase):
                {'drawing_patterns': 'drawing'}, {'calibration': {'sampled': {'candidates': 5, 'non_candidates': 5}}},
                {'calibration': {'sampled': {'candidates': 5, 'non_candidates': 5}, 'true_drawings_among_candidates': 9,
                                 'drawings_among_non_candidates': 0, 'schematics': 0, 'views_per_sheet': [1]}},
+               {'calibration': {'sampled': {'candidates': 5, 'non_candidates': 5}, 'true_drawings_among_candidates': 1,
+                                'drawings_among_non_candidates': 0, 'schematics': 0, 'views_per_sheet': []}},
                {'limits': {'max_archive_bytes': -1}}, ['not', 'an', 'object']]
         for config in bad:
             with self.subTest(config=config), self.assertRaises(formatspec.SpecConfigError):
