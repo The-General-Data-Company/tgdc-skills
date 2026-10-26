@@ -95,13 +95,13 @@ class SpecReportTests(unittest.TestCase):
         text = '\n'.join(pages)
         flat = ' '.join(text.split())
         totals = self.spec['totals']
-        self.assertIn(f"{T.size_text(totals['bytes'])} ({T.binary_text(totals['bytes'])}), {totals['files']:,} files", flat)
+        self.assertIn(f"{totals['bytes'] / 1e3:,.1f} KB ({T.binary_text(totals['bytes'])}), {totals['files']:,} files", flat)
         for label in ['Company file archive', 'Business mailboxes', 'Mailbox export log and script files', 'Unique file contents (by SHA-256)',
                       'Document period (file archive, 99% of dated documents)', 'E-mail period', 'Native CAD files (DWG / DXF)',
                       'Technical drawings and schematics (sheets)', 'Dedicated drawing files vs documents with drawings', 'Sheet sizes',
                       'Where the sheets are', 'Drawings within complete project files', 'Drawings with bills of quantities',
                       'Drawing revisions', 'Languages (main language per file, files)',
-                      'Volume by content category (GB)'.upper(), 'Volume by year: archive (bars) and e-mails (line)'.upper(),
+                      'Volume by content category (KB)'.upper(), 'Volume by year: archive (bars) and e-mails (line)'.upper(),
                       'Mailbox 1 (owner, Gmail) - .mbox export', 'Mailbox 1 (owner, Gmail) - extracted attachments',
                       'Total text-format files examined', 'Other languages (isolated detections)', 'date not reliable']:
             self.assertIn(label, flat, label)
@@ -125,6 +125,95 @@ class SpecReportTests(unittest.TestCase):
         _, card_pages = self.card_only()
         specification = ' '.join(' '.join(pages[len(card_pages):]).split())
         self.assertNotIn('ARCHIVE S', specification.upper())              # header words are not broken
+
+    def scaled(self, factor):
+        """The fixture specification with every volume multiplied, so that one structure covers all display units."""
+        def walk(value, key=''):
+            if isinstance(value, dict):
+                return {name: walk(item, name) for name, item in value.items()}
+            if isinstance(value, list):
+                return [walk(item, key) for item in value]
+            if isinstance(value, int) and not isinstance(value, bool) and key.endswith('bytes'):
+                return value * factor
+            return value
+        return walk(copy.deepcopy(self.spec))
+
+    def specification_text(self, spec, name):
+        _, pages = self.render(spec, name)
+        _, card_pages = self.card_only()
+        return ' '.join(' '.join(pages[len(card_pages):]).split())
+
+    def test_the_display_unit_follows_the_total_volume(self):
+        import spec_report
+        for total, name in [(0, 'KB'), (9999, 'KB'), (9999999, 'KB'), (10 ** 7, 'MB'), (98946673, 'MB'), (9999999999, 'MB'),
+                            (10 ** 10, 'GB'), (290330000000, 'GB')]:
+            self.assertEqual(spec_report.display_unit(total).name, name, total)
+
+    def test_a_small_selection_shows_megabytes_in_every_volume_column_and_the_charts(self):
+        spec = self.scaled(500)
+        total = spec['totals']['bytes']
+        self.assertTrue(10 ** 7 <= total < 10 ** 10)
+        flat = self.specification_text(spec, 'megabytes.pdf')
+        self.assertIn(f"{total / 1e6:,.1f} MB ({T.binary_text(total)}), {spec['totals']['files']:,} files", flat)
+        self.assertIn('Volume by content category (MB)'.upper(), flat)
+        for header in ('OF WHICH INSIDE ARCHIVES: MB', 'ARCHIVE MB', 'MB (ALL UNPACKED)', 'MB (NEW CONTENT)'):
+            self.assertIn(header, flat.upper(), header)
+        self.assertIn('archive MB', flat)                                    # axis of the year chart
+        self.assertNotRegex(flat, r'\bGB\b')
+        self.assertIn('volumes in decimal MB (1 MB = 10^6 bytes)', flat)
+        self.assertIn('MB values are rounded to three decimals; 0.000 means less than 0.5 KB', flat)
+        categories = sorted(spec['categories'], key=lambda c: -c['bytes'])
+        self.assertIn(f"Total {spec['totals']['files']:,} {total / 1e6:,.2f}", flat)       # category table: total row
+        for category in categories:
+            self.assertIn(f"{category['bytes'] / 1e6:,.2f}", flat)
+        self.assertIn(f"{categories[0]['bytes'] / 1e6:,.1f}", flat)                       # label of the longest bar
+        top = spec['formats'][0]
+        self.assertIn(f"{top['bytes'] / 1e6:,.3f}", flat)                                 # formats table: three decimals
+        language = spec['languages']['rows'][0]
+        self.assertIn(f"{language['bytes'] / 1e6:,.2f}", flat)
+
+    def test_a_tiny_selection_shows_kilobytes(self):
+        flat = self.specification_text(self.spec, 'kilobytes.pdf')
+        total = self.spec['totals']['bytes']
+        self.assertLess(total, 10 ** 7)
+        self.assertIn('Volume by content category (KB)'.upper(), flat)
+        self.assertIn('archive KB', flat)
+        self.assertNotRegex(flat, r'\b(GB|MB)\b')
+        self.assertIn('volumes in decimal KB (1 KB = 10^3 bytes)', flat)
+        self.assertIn('KB values are rounded to three decimals; 0.000 means less than 0.5 byte', flat)
+        self.assertIn(f"Total {self.spec['totals']['files']:,} {total / 1e3:,.2f}", flat)
+        self.assertIn(f"{self.spec['formats'][0]['bytes'] / 1e3:,.3f}", flat)
+
+    def test_a_large_selection_keeps_gigabytes_as_in_the_reference(self):
+        spec = self.scaled(100000)
+        total = spec['totals']['bytes']
+        self.assertGreaterEqual(total, 10 ** 10)
+        flat = self.specification_text(spec, 'gigabytes.pdf')
+        self.assertIn(f"{total / 1e9:,.1f} GB ({T.binary_text(total)}), {spec['totals']['files']:,} files", flat)
+        self.assertIn('Volume by content category (GB)'.upper(), flat)
+        self.assertIn('archive GB', flat)
+        self.assertIn('ARCHIVE GB', flat.upper())
+        self.assertIn(f"Total {spec['totals']['files']:,} {total / 1e9:,.2f}", flat)
+        self.assertIn(f"{spec['formats'][0]['bytes'] / 1e9:,.3f}", flat)
+        self.assertIn('volumes in decimal GB (1 GB = 10^9 bytes)', flat)
+        self.assertIn('GB values are rounded to three decimals; 0.000 means less than 0.5 MB', flat)
+        for header in ('OF WHICH INSIDE ARCHIVES: GB', 'GB (ALL UNPACKED)', 'GB (NEW CONTENT)'):
+            self.assertIn(header, flat.upper(), header)
+        self.assertNotIn('MB (ALL UNPACKED)', flat.upper())
+
+    def test_summary_rows_never_use_a_larger_unit_than_the_document(self):
+        for factor, forbidden in ((500, r'\bGB\b'), (1, r'\b(GB|MB)\b')):
+            flat = self.specification_text(self.scaled(factor), f'summary-{factor}.pdf')
+            self.assertNotRegex(flat, forbidden, factor)
+        # a part below 0.1 of the unit falls to the smaller unit, as in the reference, where small parts read in MB beside a GB headline
+        import spec_report
+        self.assertEqual(spec_report.display_unit(290e9).short(24.4e6), '24.4 MB')
+        self.assertEqual(spec_report.display_unit(290e9).short(0.7e9), '0.7 GB')
+        self.assertEqual(spec_report.display_unit(98.9e6).short(98.9e6), '98.9 MB')
+        self.assertEqual(spec_report.display_unit(98.9e6).short(5.4e9), '5,400.0 MB')
+        self.assertEqual(spec_report.display_unit(98.9e6).short(24e3), '24.0 KB')
+        self.assertEqual(spec_report.display_unit(5e6).short(5e6), '5,000.0 KB')
+        self.assertEqual(spec_report.display_unit(5e6).short(640), '640 bytes')
 
     def test_the_reason_for_unconfirmed_languages_follows_the_counts(self):
         import spec_report
@@ -208,6 +297,7 @@ class SpecReportTests(unittest.TestCase):
         archives = spec['methodology']['archives']
         archives.update({'members_not_extracted': 1, 'partly_readable': 1, 'not_opened': {'zip:damaged': 1}})
         spec['methodology']['unchecked_pdfs'] = {'files': 996, 'bytes': 700000000, 'mailbox_attachments': {'files': 996, 'bytes': 700000000}}
+        spec['totals']['bytes'] = 290330000000
         spec['methodology']['hidden_entries'], spec['methodology']['credential_folders'], spec['methodology']['symlinks'] = 1, 1, 1
         _, pages = self.render(spec, 'single.pdf')
         flat = ' '.join(' '.join(pages).split())

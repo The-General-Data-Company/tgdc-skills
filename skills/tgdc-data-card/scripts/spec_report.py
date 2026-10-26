@@ -57,12 +57,36 @@ def n(value):
     return f'{int(value):,}'
 
 
-def gb1(size):
-    return T.size_text(size)
+class Unit:
+    """Unit of every volume in the specification, chosen once per document from the total volume."""
+
+    def __init__(self, name, divisor, floor, half):
+        self.name, self.divisor, self.floor, self.half = name, divisor, floor, half
+
+    def table(self, size):
+        return f'{size / self.divisor:,.2f}'
+
+    def fine(self, size):
+        return f'{size / self.divisor:,.3f}'
+
+    def short(self, size):
+        """Headline size with one decimal. A part below the floor reads in the next smaller unit, as small parts do in the reference."""
+        if size >= self.floor:
+            return f'{size / self.divisor:,.1f} {self.name}'
+        return T.size_text(size)
 
 
-def gb2(size):
-    return f'{size / 1e9:,.2f}'
+# floor: the size from which a part reads in this unit (the ladder of T.size_text); half: what 0.000 stands for in the formats table
+GB, MB, KB = Unit('GB', 1e9, 1e8, '0.5 MB'), Unit('MB', 1e6, 1e5, '0.5 KB'), Unit('KB', 1e3, 1e3, '0.5 byte')
+
+
+def display_unit(total):
+    """GB from 10 GB, as in the reference; MB from 10 MB; KB below. Small selections would read 0.00 GB everywhere."""
+    return GB if total >= 10e9 else MB if total >= 10e6 else KB
+
+
+def unit_of(spec):
+    return display_unit(spec['totals']['bytes'])
 
 
 def plural(count, singular, many=None):
@@ -175,7 +199,7 @@ def _section(title, intro=None):
 
 
 class CategoryChart(Flowable):
-    """Horizontal bars: volume by content category in GB, largest first."""
+    """Horizontal bars: volume by content category in the unit of the document, largest first."""
 
     def __init__(self, rows, title):
         super().__init__()
@@ -218,9 +242,9 @@ def nice_ceiling(value):
 class YearChart(Flowable):
     """Volume of the file archive by year as bars; e-mail messages by year as a line on a second axis."""
 
-    def __init__(self, rows, title, with_mail):
+    def __init__(self, rows, title, with_mail, unit):
         super().__init__()
-        self.rows, self.title, self.with_mail = rows, title, with_mail
+        self.rows, self.title, self.with_mail, self.unit = rows, title, with_mail, unit
         self.width = WIDTH
         self.height = 205
 
@@ -231,7 +255,7 @@ class YearChart(Flowable):
         canvas.setFont('Mono', 7.5)
         canvas.drawString(0, self.height - 9, self.title.upper())
         years = self.rows
-        unit, divisor = ('MB', 1e6) if max(row['bytes'] for row in years) < 1e8 else ('GB', 1e9)
+        unit, divisor = self.unit.name, self.unit.divisor
         top_gb = nice_ceiling(max(row['bytes'] / divisor for row in years) or 1)
         top_mail = nice_ceiling(max(row['messages'] for row in years) or 1)
         canvas.setStrokeColor(card.RULE)
@@ -287,14 +311,14 @@ class YearChart(Flowable):
 # ----------------------------------------------------------------------------- summary rows
 def headline(spec):
     totals = spec['totals']
-    return f"{gb1(totals['bytes'])} ({T.binary_text(totals['bytes'])}), {noun(totals['files'], 'file')}"
+    return f"{unit_of(spec).short(totals['bytes'])} ({T.binary_text(totals['bytes'])}), {noun(totals['files'], 'file')}"
 
 
 def mailbox_summary(spec):
     mailboxes = spec['parts']['mailboxes']
     messages, files = mailboxes['messages'], mailboxes['files']
     kind = '.mbox' if mailboxes['formats'] == ['mbox'] else '.eml'
-    text = f"{gb1(mailboxes['bytes'])}, "
+    text = f"{unit_of(spec).short(mailboxes['bytes'])}, "
     parts = [f"{noun(messages, 'e-mail message')} ({kind})"]
     if mailboxes.get('metadata_files'):
         extensions = ', '.join('.' + extension for extension in mailboxes['metadata_extensions'])
@@ -314,9 +338,10 @@ def mailbox_summary(spec):
 
 def alternative_summary(spec):
     exports = spec['parts']['alternative_exports']
+    unit = unit_of(spec)
     pieces = []
     for item in exports['items']:
-        size = T.size_text(item['bytes'])
+        size = unit.short(item['bytes'])
         if item['kind'] == 'mbox':
             pieces.append(f"{item['files']:,} .mbox file{'s' if item['files'] != 1 else ''} ({size})")
         elif item['kind'] == 'attachments':
@@ -325,7 +350,7 @@ def alternative_summary(spec):
             pieces.append(f"{noun(item['files'], 'extracted message body', 'extracted message bodies')} ({size})")
         else:
             pieces.append(f"{item['files']:,} export archive{'s' if item['files'] != 1 else ''} ({size})")
-    return f"{T.size_text(exports['bytes'])}, {noun(exports['files'], 'file')}: " + ' + '.join(pieces)
+    return f"{unit.short(exports['bytes'])}, {noun(exports['files'], 'file')}: " + ' + '.join(pieces)
 
 
 def cad_text(spec):
@@ -433,33 +458,35 @@ def language_rows(spec):
 
 def archive_rows(spec):
     parts = spec['parts']
+    short = unit_of(spec).short
     rows = []
     if 'archive_contents' in parts:
         contents = parts['archive_contents']
         rows.append(('Contents of the compressed archives (unpacked; the archive files themselves are in the file archive)',
-                     f"{gb1(contents['bytes'])}, {noun(contents['files'], 'file')} from {noun(contents['archives'], 'compressed archive')}"))
+                     f"{short(contents['bytes'])}, {noun(contents['files'], 'file')} from {noun(contents['archives'], 'compressed archive')}"))
         held = parts['held_without_archives']
         rows.append(('Files as held, without the contents of the compressed archives',
-                     f"{gb1(held['bytes'])} ({T.binary_text(held['bytes'])}), {noun(held['files'], 'file')}"))
+                     f"{short(held['bytes'])} ({T.binary_text(held['bytes'])}), {noun(held['files'], 'file')}"))
         rows.append(('Contents of the compressed archives that are new content (not a copy of another file)',
-                     f"{gb1(contents['new_bytes'])}, {noun(contents['new_files'], 'file')}"))
+                     f"{short(contents['new_bytes'])}, {noun(contents['new_files'], 'file')}"))
     return rows
 
 
 def summary_rows(spec):
     parts, totals = spec['parts'], spec['totals']
+    short = unit_of(spec).short
     has_mail, has_archives = 'mailboxes' in parts, 'archive_contents' in parts
     content = 'Original company files' + (' and business mailboxes' if has_mail else '') + ', as held by the company'
     if has_archives:
         content += ', plus the contents of the compressed archives among them'
     rows = [('Content', content), ('Total volume (headline)', headline(spec)),
-            ('Company file archive', f"{gb1(parts['file_archive']['bytes'])}, {noun(parts['file_archive']['files'], 'file')}")]
+            ('Company file archive', f"{short(parts['file_archive']['bytes'])}, {noun(parts['file_archive']['files'], 'file')}")]
     if has_mail:
         rows.append(('Business mailboxes', mailbox_summary(spec)))
     if 'alternative_exports' in parts:
         rows.append(('Alternative exports of the same mailbox (same messages, not additional content)', alternative_summary(spec)))
     if 'export_logs' in parts:
-        rows.append(('Mailbox export log and script files', f"{T.size_text(parts['export_logs']['bytes'])}, {noun(parts['export_logs']['files'], 'file')}"))
+        rows.append(('Mailbox export log and script files', f"{short(parts['export_logs']['bytes'])}, {noun(parts['export_logs']['files'], 'file')}"))
     rows.extend(archive_rows(spec))
     if totals['hashed_files']:
         rows.append(('Unique file contents (by SHA-256)', f"{n(totals['unique_contents'])} of {noun(totals['files'], 'file')}"))
@@ -492,13 +519,14 @@ def summary_section(spec):
 def category_section(spec):
     total = spec['totals']['bytes'] or 1
     split_inside = spec['totals']['files'] != spec['totals']['held_files']
-    header = ['Content category', 'Files', 'Unique files', 'GB', '% of volume', 'Of which inside archives: files', 'Of which inside archives: GB', 'Main formats']
+    unit = unit_of(spec)
+    header = ['Content category', 'Files', 'Unique files', unit.name, '% of volume', 'Of which inside archives: files', f'Of which inside archives: {unit.name}', 'Main formats']
     rows = []
     for category in spec['categories']:
-        rows.append([category['name'], n(category['files']), n(category['unique']) if 'unique' in category else '', gb2(category['bytes']),
-                     f"{100 * category['bytes'] / total:.1f}", n(category['archive_files']), gb2(category['archive_bytes']), ', '.join(category['formats'])])
-    rows.append(['Total', n(spec['totals']['files']), '', gb2(spec['totals']['bytes']), '100.0', n(sum(c['archive_files'] for c in spec['categories'])),
-                 gb2(sum(c['archive_bytes'] for c in spec['categories'])), ''])
+        rows.append([category['name'], n(category['files']), n(category['unique']) if 'unique' in category else '', unit.table(category['bytes']),
+                     f"{100 * category['bytes'] / total:.1f}", n(category['archive_files']), unit.table(category['archive_bytes']), ', '.join(category['formats'])])
+    rows.append(['Total', n(spec['totals']['files']), '', unit.table(spec['totals']['bytes']), '100.0', n(sum(c['archive_files'] for c in spec['categories'])),
+                 unit.table(sum(c['archive_bytes'] for c in spec['categories'])), ''])
     widths = [128, 38, 38, 38, 34, 50, 50, WIDTH - 376]
     aligns = ['left', 'right', 'right', 'right', 'right', 'right', 'right', 'left']
     if not split_inside:
@@ -509,14 +537,15 @@ def category_section(spec):
         widths[-1] = WIDTH - sum(widths[:-1])
     intro = ('All files held plus the contents of the compressed archives (unpacked); the archive contents are also shown in their own columns.'
              if split_inside else 'All files held.')
-    chart_rows = sorted(((T.short_category(c['name']), c['bytes'] / 1e9) for c in spec['categories']), key=lambda item: -item[1])
+    chart_rows = sorted(((T.short_category(c['name']), c['bytes'] / unit.divisor) for c in spec['categories']), key=lambda item: -item[1])
     return _section('Content by category', intro) + [_table(header, rows, widths, aligns, size=8, total=True), Spacer(1, 12),
-                                                       CategoryChart(chart_rows, 'Volume by content category (GB)')]
+                                                       CategoryChart(chart_rows, f'Volume by content category ({unit.name})')]
 
 
 def formats_section(spec):
-    rows = [[row['ext'], row['category'], n(row['files']), f"{row['bytes'] / 1e9:,.3f}", n(row['archive_files'])] for row in spec['formats']]
-    header = ['Format (extension)', 'Category', 'Files', 'GB', 'Of which inside archives: files']
+    unit = unit_of(spec)
+    rows = [[row['ext'], row['category'], n(row['files']), unit.fine(row['bytes']), n(row['archive_files'])] for row in spec['formats']]
+    header = ['Format (extension)', 'Category', 'Files', unit.name, 'Of which inside archives: files']
     widths = [78, WIDTH - 78 - 52 - 52 - 74, 52, 52, 74]
     aligns = ['left', 'left', 'right', 'right', 'right']
     if not any(row['archive_files'] for row in spec['formats']) and 'archive_contents' not in spec['parts']:
@@ -543,36 +572,37 @@ def mailbox_other_text(box):
     return '; '.join(pieces)
 
 
-def mailbox_alt_rows(box):
+def mailbox_alt_rows(box, unit):
     rows = []
     for item in box.get('alternatives', ()):
         files = item['files']
         count = f"{n(files)} file{'s' if files != 1 else ''}"
         if item['kind'] == 'mbox':
-            rows.append([f"{box['label']} - .mbox export", '(same messages)', gb2(item['bytes']), '', EXTENSION_TEXT['mbox'], f'{count}; alternative export of the same mailbox'])
+            rows.append([f"{box['label']} - .mbox export", '(same messages)', unit.table(item['bytes']), '', EXTENSION_TEXT['mbox'], f'{count}; alternative export of the same mailbox'])
         elif item['kind'] == 'attachments':
-            rows.append([f"{box['label']} - extracted attachments", '(same messages)', gb2(item['bytes']), '', 'original attachment files',
+            rows.append([f"{box['label']} - extracted attachments", '(same messages)', unit.table(item['bytes']), '', 'original attachment files',
                          f'{count}; attachments of the same messages, also embedded in the .eml'])
         elif item['kind'] == 'bodies':
-            rows.append([f"{box['label']} - extracted message bodies", '(same messages)', gb2(item['bytes']), '', '.txt / .html message bodies',
+            rows.append([f"{box['label']} - extracted message bodies", '(same messages)', unit.table(item['bytes']), '', '.txt / .html message bodies',
                          f'{count}; text and HTML bodies of the same messages, also inside the .eml'])
         else:
             extension = ', '.join('.' + e for e in item.get('extensions', ())) or 'archive'
-            rows.append([f"{box['label']} - export archive ({extension})", '(same messages)', gb2(item['bytes']), '', f'{extension} archive of the whole export',
+            rows.append([f"{box['label']} - export archive ({extension})", '(same messages)', unit.table(item['bytes']), '', f'{extension} archive of the whole export',
                          f'{count}; the mailbox export as delivered, same content as the unpacked folder'])
     return rows
 
 
 def mailbox_section(spec):
+    unit = unit_of(spec)
     rows = []
     for box in spec['mailboxes']:
-        rows.append([box['label'], n(box['messages']), gb2(box['bytes']), T.year_range(*box['period']) if box.get('period') else '',
+        rows.append([box['label'], n(box['messages']), unit.table(box['bytes']), T.year_range(*box['period']) if box.get('period') else '',
                      EXTENSION_TEXT[box['format']], mailbox_other_text(box)])
-        rows.extend(mailbox_alt_rows(box))
+        rows.extend(mailbox_alt_rows(box, unit))
     logs = spec['parts'].get('export_logs')
     if logs:
-        rows.append(['Mailbox export log and script files', '', gb2(logs['bytes']), '', 'scripts / logs', noun(logs['files'], 'file')])
-    header = ['Mailbox', 'Messages', 'GB', 'Period', 'Format', 'Other files']
+        rows.append(['Mailbox export log and script files', '', unit.table(logs['bytes']), '', 'scripts / logs', noun(logs['files'], 'file')])
+    header = ['Mailbox', 'Messages', unit.name, 'Period', 'Format', 'Other files']
     widths = [108, 70, 34, 58, 92, WIDTH - 362]
     aligns = ['left', 'right', 'right', 'left', 'left', 'left']
     return _section('Mailboxes') + [_table(header, rows, widths, aligns, size=8)]
@@ -580,16 +610,18 @@ def mailbox_section(spec):
 
 def language_section(spec):
     languages = spec['languages']
+    unit = unit_of(spec)
     with_mail = languages['total']['messages'] > 0
-    rows = [[row['name'], n(row['files']), gb2(row['bytes']), n(row['messages'])] for row in languages['rows']]
+    rows = [[row['name'], n(row['files']), unit.table(row['bytes']), n(row['messages'])] for row in languages['rows']]
     if languages.get('other'):
-        rows.append(['Other languages (isolated detections)', n(languages['other']['files']), gb2(languages['other']['bytes']), n(languages['other']['messages'])])
+        rows.append(['Other languages (isolated detections)', n(languages['other']['files']), unit.table(languages['other']['bytes']),
+                     n(languages['other']['messages'])])
     if languages.get('none'):
         rows.append([f"No language confirmed ({no_language_reason(languages['none'])})", n(languages['none']['files']),
-                     gb2(languages['none']['bytes']), n(languages['none']['messages'])])
+                     unit.table(languages['none']['bytes']), n(languages['none']['messages'])])
     total = languages['total']
-    rows.append(['Total text-format files examined', n(total['files']), gb2(total['bytes']), n(total['messages'])])
-    header = ['Language', 'Files (main language)', 'GB', 'E-mail messages']
+    rows.append(['Total text-format files examined', n(total['files']), unit.table(total['bytes']), n(total['messages'])])
+    header = ['Language', 'Files (main language)', unit.name, 'E-mail messages']
     widths = [WIDTH - 3 * 82, 82, 82, 82]
     aligns = ['left', 'right', 'right', 'right']
     if not with_mail:
@@ -604,10 +636,12 @@ def language_section(spec):
 
 def archive_section(spec):
     archives = spec['archives']
-    rows = [[c['name'], n(c['files']), gb2(c['bytes']), n(c['new_files']), gb2(c['new_bytes']), ', '.join(c['formats'])] for c in archives['categories']]
+    unit = unit_of(spec)
+    rows = [[c['name'], n(c['files']), unit.table(c['bytes']), n(c['new_files']), unit.table(c['new_bytes']), ', '.join(c['formats'])]
+            for c in archives['categories']]
     total = archives['total']
-    rows.append(['Total', n(total['files']), gb2(total['bytes']), n(total['new_files']), gb2(total['new_bytes']), ''])
-    header = ['Content category', 'Files (all unpacked)', 'GB (all unpacked)', 'Files (new content)', 'GB (new content)', 'Main formats']
+    rows.append(['Total', n(total['files']), unit.table(total['bytes']), n(total['new_files']), unit.table(total['new_bytes']), ''])
+    header = ['Content category', 'Files (all unpacked)', f'{unit.name} (all unpacked)', 'Files (new content)', f'{unit.name} (new content)', 'Main formats']
     widths = [150, 56, 56, 56, 56, WIDTH - 374]
     aligns = ['left', 'right', 'right', 'right', 'right', 'left']
     intro = ("Detail of the archive contents included in the totals. 'All unpacked' counts every file inside the archives; 'new content' leaves out "
@@ -669,19 +703,20 @@ def drawings_section(spec):
 
 def years_section(spec):
     years = spec['years']
+    unit = unit_of(spec)
     with_mail = years['has_mail']
     rows = years['rows']
     unreliable = years.get('unreliable')
     title = 'Volume by year: archive (bars) and e-mails (line)' if with_mail else 'Volume by year: archive'
-    table_rows = [[str(r['year']), n(r['files']), gb2(r['bytes']), n(r['messages'])] for r in rows]
+    table_rows = [[str(r['year']), n(r['files']), unit.table(r['bytes']), n(r['messages'])] for r in rows]
     files = sum(r['files'] for r in rows)
     size = sum(r['bytes'] for r in rows)
     messages = sum(r['messages'] for r in rows)
     if unreliable:
-        table_rows.append(['date not reliable', n(unreliable['files']), gb2(unreliable['bytes']), n(unreliable['messages'])])
+        table_rows.append(['date not reliable', n(unreliable['files']), unit.table(unreliable['bytes']), n(unreliable['messages'])])
         files, size, messages = files + unreliable['files'], size + unreliable['bytes'], messages + unreliable['messages']
-    table_rows.append(['Total', n(files), gb2(size), n(messages)])
-    header = ['Year', 'Archive files', 'Archive GB', 'E-mail messages']
+    table_rows.append(['Total', n(files), unit.table(size), n(messages)])
+    header = ['Year', 'Archive files', f'Archive {unit.name}', 'E-mail messages']
     widths = [WIDTH - 3 * 110, 110, 110, 110]
     aligns = ['left', 'right', 'right', 'right']
     if not with_mail:
@@ -691,16 +726,17 @@ def years_section(spec):
         widths[0] = WIDTH - 2 * 110
     story = _section('By year')
     if rows:
-        story.extend([YearChart(rows, title, with_mail), Spacer(1, 8)])
+        story.extend([YearChart(rows, title, with_mail, unit), Spacer(1, 8)])
     return story + [_table(header, table_rows, widths, aligns, size=8, total=True)]
 
 
 def notes(spec):
     parts, method = spec['parts'], spec['methodology']
+    unit = unit_of(spec)
     archives = method['archives']
     has_archives = 'archive_contents' in parts
     items = ['All figures are for the original files as held by the company' + (', together with the contents of the compressed archives among them'
-                                                                               if has_archives else '') + '; volumes in decimal GB (1 GB = 10^9 bytes).']
+                                                                               if has_archives else '') + f'; volumes in decimal {unit.name} (1 {unit.name} = 10^{round(math.log10(unit.divisor))} bytes).']
     if 'alternative_exports' in parts:
         kinds = [{'mbox': 'one .mbox file', 'attachments': 'the extracted attachment files', 'bodies': 'the extracted message bodies',
                   'archive': 'the export archive'}[i['kind']] for i in parts['alternative_exports']['items']]
@@ -735,10 +771,10 @@ def notes(spec):
         mailbox = unchecked.get('mailbox_attachments', {'files': 0, 'bytes': 0})
         one = unchecked['files'] == 1
         if mailbox['files'] == unchecked['files']:
-            scanned += (f" {noun(unchecked['files'], 'PDF')} ({gb1(unchecked['bytes'])}) among the extracted mailbox attachments "
+            scanned += (f" {noun(unchecked['files'], 'PDF')} ({unit.short(unchecked['bytes'])}) among the extracted mailbox attachments "
                         f"{'was' if one else 'were'} not checked for a text layer and {'is' if one else 'are'} counted as text documents.")
         else:
-            scanned += (f" {noun(unchecked['files'], 'PDF')} ({gb1(unchecked['bytes'])}) could not be checked for a text layer and "
+            scanned += (f" {noun(unchecked['files'], 'PDF')} ({unit.short(unchecked['bytes'])}) could not be checked for a text layer and "
                         f"{'is' if one else 'are'} counted as text documents.")
             if mailbox['files']:
                 scanned += f" {n(mailbox['files'])} of them {'is' if mailbox['files'] == 1 else 'are'} among the extracted mailbox attachments."
@@ -768,8 +804,8 @@ def notes(spec):
             text += (f" {plural(count, 'file or message', 'files or messages')} {'carries' if count == 1 else 'carry'} a date that is clearly not reliable "
                      f"(before 1990 or after {spec['current_year']}) and {'is' if count == 1 else 'are'} shown as 'date not reliable'.")
         items.append(text)
-    items.append('By format: GB values are rounded to three decimals; 0.000 means less than 0.5 MB. Irregular extensions (file-name fragments after a dot) '
-                 "are grouped as '(other / irregular extension)'.")
+    items.append(f'By format: {unit.name} values are rounded to three decimals; 0.000 means less than {unit.half}. Irregular extensions '
+                 "(file-name fragments after a dot) are grouped as '(other / irregular extension)'.")
     if method['unreadable_files'] or method['time_limited_files']:
         count = method['unreadable_files'] + method['time_limited_files']
         items.append(f"{plural(count, 'file')} could not be read completely (access problem, change during the run or a time limit); "
