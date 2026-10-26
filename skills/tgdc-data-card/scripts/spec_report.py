@@ -706,7 +706,9 @@ def language_section(spec):
         del header[3], widths[3], aligns[3]
         widths[0] = WIDTH - 2 * 82
     intro = ('Main language per text-bearing file, detected and confirmed by a common-word / script check. '
-             'Drawings, photos and archives are not language-classified.')
+             'Drawings, photos and archives are not language-classified. '
+             'The language figures on the Data Card pages cover a bounded sample of supported files, including '
+             'structured data files, so their counts differ from this table.')
     return _section('Languages', intro) + [_table(header, rows, widths, aligns, size=8, total=True)]
 
 
