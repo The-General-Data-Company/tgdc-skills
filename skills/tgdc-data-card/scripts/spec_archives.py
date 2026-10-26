@@ -109,10 +109,6 @@ def clean(text):
     return str(text).encode('utf-8', 'replace').decode('utf-8')
 
 
-def glob_escape(name):
-    return re.sub(r'([*?\[\]\\])', r'\\\1', name)
-
-
 class Reader:
     def __init__(self, temp_dir, tools=None, limits=None, deadline=None, want_text=True):
         self.temp_dir = temp_dir
