@@ -6,6 +6,7 @@ stays on this machine. spec.json receives aggregates only: counts, sizes,
 years and partner-declared vocabulary. Nothing here opens a network
 connection, executes file content or modifies a source.
 """
+import fcntl
 import hashlib
 import json
 import multiprocessing
@@ -14,10 +15,12 @@ import multiprocessing.reduction as reduction
 import os
 import re
 import shutil
+import signal
 import sqlite3
 import stat
 import sys
 import tempfile
+import threading
 import time
 from collections import Counter, defaultdict, deque
 from datetime import datetime, timezone
@@ -27,11 +30,14 @@ import spec_archives
 import spec_content
 from profiler import (checked_path, excluded, open_nofollow, output_directory, prepare_roots, require_supported_platform,
                       verify_output_directory, write_json)
-from spec_taxonomy import is_credential_name, raw_extension
+from spec_taxonomy import ARCHIVE_EXTENSIONS, IMAGE_SHEET_EXTENSIONS, is_credential_name, raw_extension
 
 SCHEMA = 'tgdc-format-spec/1.0'
-ENGINE = 4
+ENGINE = 5
 CACHE_NAME = 'spec-cache.private.sqlite'
+LOCK_NAME = 'spec-run.lock'
+MEMBER_BATCH = 1000          # archive members sent to the parent at a time
+GIB = 2 ** 30
 SETTINGS_DEFAULTS = {
     'parse_seconds': 300.0, 'archive_seconds': 7200.0, 'member_parse_bytes': 128 * 1024 * 1024,
     'max_message_bytes': 64 * 1024 * 1024, 'max_archive_bytes': 20 * 10 ** 9, 'max_archive_ratio': 200, 'max_depth': 5,
@@ -47,6 +53,29 @@ class SpecInterrupted(Exception):
 
 class SpecConfigError(ValueError):
     pass
+
+
+def acquire_lock(descriptor):
+    """Exclusive lock on the output folder for the length of a run; a second run there is refused."""
+    lock = os.open(LOCK_NAME, os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600, dir_fd=descriptor)
+    try:
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError as error:
+        os.close(lock)
+        raise SpecConfigError('Another specification run is using this output folder. Wait for it to finish.') from error
+    return lock
+
+
+def _terminate(signum, frame):
+    raise KeyboardInterrupt()
+
+
+def release_lock(descriptor, lock):
+    try:
+        os.unlink(LOCK_NAME, dir_fd=descriptor)
+    except OSError:
+        pass
+    os.close(lock)
 
 
 # --------------------------------------------------------------------------- configuration
@@ -223,16 +252,34 @@ def walk_roots(roots):
                 else:
                     stats['special_files'] += 1
     entries.sort(key=lambda entry: (entry.root, entry.rel))
-    assign_parts(entries)
+    stats['orphan_volumes'] += assign_parts(entries)
     return entries, stats
 
 
+def head_of(path, count=600):
+    """First bytes of a file, opened without following links; empty when it cannot be read."""
+    try:
+        descriptor = open_nofollow(path)
+    except OSError:
+        return b''
+    try:
+        return os.read(descriptor, count)
+    except OSError:
+        return b''
+    finally:
+        os.close(descriptor)
+
+
 def assign_parts(entries):
-    """Link the volumes of multi-part archives: the first volume leads, the rest follow."""
+    """Link the volumes of multi-part archives: the first volume leads, the rest follow.
+
+    A numbered series (x.001, x.002) counts only when its first part has an archive signature. Volumes whose first part is
+    missing are marked 'orphan'. Returns the number of orphan volumes."""
     folders = defaultdict(dict)
     for entry in entries:
         folder = entry.rel.rsplit('/', 1)[0] if '/' in entry.rel else ''
         folders[(entry.root, folder)][entry.name.lower()] = entry
+    orphans = 0
     for names in folders.values():
         groups = defaultdict(list)
         for lowered, entry in names.items():
@@ -241,25 +288,41 @@ def assign_parts(entries):
                 groups[('rarpart', match.group(1))].append((int(match.group(2)), entry))
                 continue
             match = re.match(r'^(.+)\.r(\d{2,3})$', lowered)
-            if match and match.group(1) + '.rar' in names:
+            if match:
                 groups[('rar', match.group(1))].append((int(match.group(2)) + 1, entry))
                 continue
             match = re.match(r'^(.+)\.z(\d{2,3})$', lowered)
-            if match and match.group(1) + '.zip' in names:
+            if match:
                 groups[('zip', match.group(1))].append((int(match.group(2)), entry))
                 continue
             match = re.match(r'^(.+)\.(\d{3,})$', lowered)
             if match:
                 groups[('num', match.group(1))].append((int(match.group(2)), entry))
         for (style, base), members in groups.items():
+            has_first = True
             if style == 'rar':
-                members.append((0, names[base + '.rar']))
+                has_first = base + '.rar' in names
+                if has_first:
+                    members.append((0, names[base + '.rar']))
             elif style == 'zip':
-                members.append((10 ** 6, names[base + '.zip']))
+                has_first = base + '.zip' in names
+                if has_first:
+                    members.append((10 ** 6, names[base + '.zip']))
             members.sort(key=lambda pair: pair[0])
+            first = members[0][0]
+            if style == 'rarpart':
+                has_first = first == 1
+            elif style == 'num':
+                has_first = first in (0, 1)
+            if not has_first:
+                if style != 'num' or raw_extension(base) in ARCHIVE_EXTENSIONS:
+                    for _, entry in members:
+                        entry.role, entry.style = 'orphan', style
+                        orphans += 1
+                continue
             if len(members) < 2:
                 continue
-            if style == 'num' and members[0][0] not in (0, 1):
+            if style == 'num' and not spec_archives.magic_kind(head_of(members[0][1].path)):
                 continue
             ordered = [entry for _, entry in members]
             leader = ordered[-1] if style == 'zip' else ordered[0]
@@ -268,6 +331,7 @@ def assign_parts(entries):
             for part in ordered:
                 if part is not leader:
                     part.role, part.style, part.leader = 'follower', style, leader.id
+    return orphans
 
 
 # --------------------------------------------------------------------------- cache
@@ -283,9 +347,13 @@ class Cache:
         self.db.execute('PRAGMA synchronous=NORMAL')
         self.db.execute('CREATE TABLE IF NOT EXISTS meta(key TEXT PRIMARY KEY, value TEXT)')
         self.db.execute('CREATE TABLE IF NOT EXISTS files(id BLOB PRIMARY KEY, root INTEGER, path BLOB, size INTEGER, mtime_ns INTEGER, status TEXT, result TEXT)')
+        # One row per archive member: the hash and size in fixed-size columns, the rest of the member's facts as short JSON.
+        self.db.execute('CREATE TABLE IF NOT EXISTS members(file_id BLOB, seq INTEGER, sha BLOB, size INTEGER, body TEXT, PRIMARY KEY(file_id, seq)) WITHOUT ROWID')
         stored = self.db.execute("SELECT value FROM meta WHERE key='engine'").fetchone()
         if stored and stored[0] != str(ENGINE):
             self.db.execute('DELETE FROM files')
+            self.db.execute('DELETE FROM members')
+        self.db.execute('DELETE FROM members WHERE file_id NOT IN (SELECT id FROM files)')       # left by a run that was killed mid-archive
         self.db.execute("INSERT OR REPLACE INTO meta VALUES('engine', ?)", (str(ENGINE),))
         self.pending = 0
         self.db.execute('BEGIN')
@@ -314,6 +382,37 @@ class Cache:
     def get(self, identifier):
         row = self.db.execute('SELECT result FROM files WHERE id=?', (identifier,)).fetchone()
         return json.loads(row[0]) if row else None
+
+    def add_members(self, identifier, start, batch):
+        rows = []
+        for offset, member in enumerate(batch):
+            body = {key: value for key, value in member.items() if key not in ('s', 'h')}
+            rows.append((identifier, start + offset, bytes.fromhex(member['h']) if member.get('h') else None, member['s'],
+                         json.dumps(body, ensure_ascii=False, separators=(',', ':'))))
+        self.db.executemany('INSERT OR REPLACE INTO members VALUES(?,?,?,?,?)', rows)
+        self.pending += 1
+        if self.pending >= 200:
+            self.commit()
+
+    def drop_members(self, identifier, keep=0):
+        """Remove the members of a file from position keep on; everything when keep is 0."""
+        self.db.execute('DELETE FROM members WHERE file_id=? AND seq>=?', (identifier, keep))
+
+    def members(self, identifier):
+        """The members of one archive in order, one at a time."""
+        for size, sha, body in self.db.execute('SELECT size, sha, body FROM members WHERE file_id=? ORDER BY seq', (identifier,)):
+            member = json.loads(body)
+            member['s'] = size
+            if sha is not None:
+                member['h'] = sha.hex()
+            yield member
+
+    def member_owners(self):
+        return {row[0] for row in self.db.execute('SELECT DISTINCT file_id FROM members')}
+
+    def member_hashes(self, identifier):
+        for (sha,) in self.db.execute('SELECT sha FROM members WHERE file_id=? AND sha IS NOT NULL ORDER BY seq', (identifier,)):
+            yield sha.hex()
 
     def set_meta(self, key, value):
         self.db.execute('INSERT OR REPLACE INTO meta VALUES(?, ?)', (key, json.dumps(value)))
@@ -363,23 +462,42 @@ def _open_regular(path, identity):
     return (os.fdopen(descriptor, 'rb'), None) if descriptor is not None else (None, problem)
 
 
-def _facts_for_stream(extension, stream, data, settings, deadline):
-    if data is not None:
-        return spec_content.content_facts(extension, data, text_pages=1, deadline=deadline)
+def _facts_for_stream(extension, stream, text, size, settings, deadline):
+    """Facts of a loose document. Text formats come from their first bytes, other formats from the open file; no copy is held."""
+    if extension in spec_content.TEXT_HEAD_EXTENSIONS:
+        return spec_content.content_facts(extension, text, text_pages=1, deadline=deadline)
     if extension in ('pdf', 'tif', 'tiff'):
         stream.seek(0)
         return spec_content.content_facts(extension, stream, text_pages=1, deadline=deadline)
+    if size > settings['member_parse_bytes']:
+        return {}
+    if extension in spec_content.STREAM_EXTENSIONS:
+        stream.seek(0)
+        return spec_content.content_facts(extension, stream, text_pages=1, deadline=deadline)
+    if extension in IMAGE_SHEET_EXTENSIONS:
+        return spec_content.content_facts(extension, b'', text_pages=1, deadline=deadline)       # the facts do not depend on the bytes
     return {}
 
 
-def process_task(task, settings, stage, descriptors):
+def _unchanged(descriptor, task):
+    """False when the open file changed in size or modification time since the inventory."""
+    try:
+        info = os.fstat(descriptor)
+    except OSError:
+        return False
+    return (info.st_size, info.st_mtime_ns) == (task['identity'][2], task['identity'][3])
+
+
+def process_task(task, settings, stage, descriptors, emit=None):
     """Hash one file and extract its facts. The file arrives as an open descriptor, never as a path.
 
+    Archive members go to emit(start, batch) when it is given and into the result otherwise.
     Returns a JSON-ready dictionary and never raises."""
     name = task['name']
     extension = raw_extension(name)
     streams = [os.fdopen(descriptor, 'rb') for descriptor in descriptors]
     stream = streams[0]
+    watch = os.dup(stream.fileno())            # a parser may close the stream; this one still answers for the final check
     try:
         info = os.fstat(stream.fileno())
         if not stat.S_ISREG(info.st_mode):
@@ -387,9 +505,9 @@ def process_task(task, settings, stage, descriptors):
         if (info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns) != tuple(task['identity']):
             return {'status': 'changed'}
         size = task['identity'][2]
-        keep = size <= settings['member_parse_bytes'] and not task.get('hash_only')
+        text_head = extension in spec_content.TEXT_HEAD_EXTENSIONS and not task.get('hash_only')
         digest = hashlib.sha256()
-        buffer = bytearray() if keep else None
+        text = bytearray()
         head = b''
         total = 0
         while True:
@@ -400,22 +518,23 @@ def process_task(task, settings, stage, descriptors):
                 head = block[:600]
             digest.update(block)
             total += len(block)
-            if keep:
-                buffer.extend(block)
+            if text_head and len(text) < spec_content.TEXT_HEAD_BYTES:
+                text.extend(block[:spec_content.TEXT_HEAD_BYTES - len(text)])
         if total != size:
             return {'status': 'changed'}
         sha = digest.hexdigest()
         stage(sha)
-        data = bytes(buffer) if keep else None
         result = {'status': 'ok', 'sha': sha}
         if task.get('hash_only'):
-            return result          # credential and key files: only the checksum, never parsed
+            return result if _unchanged(watch, task) else {'status': 'changed'}          # credential and key files: only the checksum
         now = time.monotonic()
         deadline = now + settings['parse_seconds']
         try:
             role = task.get('role')
-            if extension == 'eml' and data is not None and size <= settings['max_message_bytes']:
-                result['mail'] = spec_content.analyze_message(data, deadline=deadline)
+            kind = spec_archives.archive_kind(name, head)
+            if extension == 'eml' and size <= settings['max_message_bytes']:
+                stream.seek(0)
+                result['mail'] = spec_content.analyze_message(stream.read(), deadline=deadline)
             elif extension == 'eml':
                 result['unreadable'] = True
             elif extension == 'mbox':
@@ -423,27 +542,39 @@ def process_task(task, settings, stage, descriptors):
                 result['mbox'] = spec_content.analyze_mbox(stream, set(task.get('known', ())), settings['max_message_bytes'],
                                                            deadline=now + settings['archive_seconds'])
             elif role == 'leader' and task.get('style') == 'num':
-                result['arch'] = _read_archive(task, streams, size, name, None, settings)
-            elif role != 'follower' and spec_archives.archive_kind(name, head):
-                result['arch'] = _read_archive(task, streams, size, name, spec_archives.archive_kind(name, head), settings)
+                result['arch'] = _read_archive(task, streams, size, name, None, settings, emit)
+            elif role == 'orphan':
+                pass                               # a volume whose first part is missing cannot be opened; it is hashed and counted
+            elif role != 'follower' and kind:
+                result['arch'] = _read_archive(task, streams, size, name, kind, settings, emit)
             else:
-                result.update(_facts_for_stream(extension, stream, data, settings, deadline))
+                text_bytes = bytes(text)
+                if size > spec_content.TEXT_HEAD_BYTES:
+                    text_bytes = spec_content.trim_partial_character(text_bytes)
+                result.update(_facts_for_stream(extension, stream, text_bytes, size, settings, deadline))
         except Exception:
             result['unreadable'] = True
-        return result
+        return result if _unchanged(watch, task) else {'status': 'changed'}
     finally:
+        os.close(watch)
         for item in streams:
             item.close()
 
 
-def _read_archive(task, streams, size, name, kind, settings):
-    """Read an archive from its open volumes (the first is the leader); temporary files live in a private folder."""
-    folder = tempfile.mkdtemp(dir=settings['temp_dir'])
+def _read_archive(task, streams, size, name, kind, settings, emit=None):
+    """Read an archive from its open volumes (the first is the leader); temporary files live in the folder the parent made for the task."""
+    folder = tempfile.mkdtemp(dir=task.get('temp') or settings['temp_dir'])
     opened = []
+    sent = [0]
+
+    def sink(batch):
+        emit(sent[0], batch)
+        sent[0] += len(batch)
     try:
         limits = {'max_expanded_bytes': settings['max_archive_bytes'], 'max_ratio': settings['max_archive_ratio'],
                   'max_depth': settings['max_depth'], 'member_parse_bytes': settings['member_parse_bytes']}
-        reader = spec_archives.Reader(folder, tools=settings['tools'], limits=limits, deadline=time.monotonic() + settings['archive_seconds'])
+        reader = spec_archives.Reader(folder, tools=settings['tools'], limits=limits, deadline=time.monotonic() + settings['archive_seconds'],
+                                      sink=sink if emit else None, flush=MEMBER_BATCH)
         parts = None
         compressed = size
         source, source_name = streams[0], name
@@ -467,9 +598,13 @@ def _read_archive(task, streams, size, name, kind, settings):
             return {'kind': None, 'ok': False, 'opened': 0}
         source.seek(0)
         ok = reader.open_archive(kind, source_name, source, 1, '', compressed=compressed, parts=parts)
-        return {'kind': kind, 'ok': bool(ok), 'opened': reader.opened, 'partly': reader.partly, 'lost': reader.lost,
-                'failed': dict(reader.failed), 'used': dict(reader.used), 'hidden': reader.hidden, 'timeout': reader.timed_out,
-                'members': reader.members}
+        reader.flush_members()
+        result = {'kind': kind, 'ok': bool(ok), 'opened': reader.opened, 'partly': reader.partly, 'lost': reader.lost,
+                  'failed': dict(reader.failed), 'used': dict(reader.used), 'hidden': reader.hidden, 'links': reader.links,
+                  'timeout': reader.timed_out, 'n': reader.member_count}
+        if not emit:
+            result['members'] = reader.members
+        return result
     finally:
         for item in opened:
             item.close()
@@ -477,6 +612,7 @@ def _read_archive(task, streams, size, name, kind, settings):
 
 
 def worker_main(connection, settings):
+    spec_archives.install_termination_handler()
     with open(os.devnull, 'w') as sink:
         os.dup2(sink.fileno(), 1)
         os.dup2(sink.fileno(), 2)
@@ -490,7 +626,8 @@ def worker_main(connection, settings):
                 break
             descriptors = [reduction.recv_handle(connection) for _ in range(task['handles'])]
             try:
-                result = process_task(task, settings, lambda sha: connection.send(('hash', sha)), descriptors)
+                result = process_task(task, settings, lambda sha: connection.send(('hash', sha)), descriptors,
+                                      emit=lambda start, batch: connection.send(('members', (start, batch))))
             except Exception:
                 result = {'status': 'error'}
             connection.send(('done', result))
@@ -510,6 +647,7 @@ class Worker:
         self.task = None
         self.deadline = None
         self.sha = None
+        self.members = []
 
     def kill(self):
         try:
@@ -543,11 +681,25 @@ def open_volumes(task):
     return descriptors, None
 
 
-def run_pool(tasks, count, settings, on_result, target=None):
-    """Run tasks on worker processes. A worker that exceeds its deadline or dies is replaced; the file is recorded as such."""
+def release(task):
+    """Remove the private folder the parent made for a task, whatever became of the task."""
+    temp = task.pop('temp', None) if isinstance(task, dict) else None
+    if temp:
+        shutil.rmtree(temp, ignore_errors=True)
+
+
+def run_pool(tasks, count, settings, on_result, target=None, on_members=None):
+    """Run tasks on worker processes. A worker that exceeds its deadline or dies is replaced; the file is recorded as such.
+
+    Each task that may hold an archive gets a private temporary folder, made here and removed here once the task is over.
+    Archive members arrive in batches and go to on_members(task, start, batch), or into the result when it is not given."""
     context = multiprocessing.get_context('spawn')
     pending = deque(tasks)
     workers = [Worker(context, settings, target or worker_main) for _ in range(max(1, min(count, len(pending) or 1)))]
+
+    def replace(worker):
+        worker.kill()
+        worker.__init__(context, settings, worker.target)
     try:
         while pending or any(worker.task for worker in workers):
             for worker in workers:
@@ -557,19 +709,31 @@ def run_pool(tasks, count, settings, on_result, target=None):
                     if problem:
                         on_result(task, {'status': problem})
                         continue
-                    worker.task, worker.sha = task, None
+                    if settings.get('temp_dir') and spec_archives.may_hold_archive(task['name'], task.get('role')):
+                        task['temp'] = tempfile.mkdtemp(dir=settings['temp_dir'])
+                    worker.task, worker.sha, worker.members = task, None, []
                     worker.deadline = time.monotonic() + max(settings['hash_floor_seconds'], task['identity'][2] / 1e6 * 2)
+                    failed_to_send = False
                     try:
-                        message = {key: value for key, value in task.items() if key not in ('path', 'parts')}
+                        message = {key: value for key, value in task.items() if key not in ('path', 'parts', '_attempt')}
                         message['handles'] = len(descriptors)
                         worker.connection.send(message)
                         for descriptor in descriptors:
                             reduction.send_handle(worker.connection, descriptor, worker.process.pid)
-                    except (OSError, ValueError):
-                        worker.deadline = 0
+                    except (OSError, ValueError, RuntimeError):
+                        failed_to_send = True          # the worker died at start; RuntimeError is the missing hand-over acknowledgement
                     finally:
                         for descriptor in descriptors:
                             os.close(descriptor)
+                    if failed_to_send:
+                        worker.task = None
+                        replace(worker)
+                        release(task)
+                        if task.get('_attempt', 0) < 1:
+                            task['_attempt'] = 1
+                            pending.appendleft(task)
+                        else:
+                            on_result(task, {'status': 'crashed'})
             busy = [worker for worker in workers if worker.task is not None]
             ready = multiprocessing.connection.wait([worker.connection for worker in busy], timeout=1.0)
             for worker in busy:
@@ -586,23 +750,27 @@ def run_pool(tasks, count, settings, on_result, target=None):
                             budget = (settings['archive_seconds'] if long_running else settings['parse_seconds']) + settings['grace_seconds']
                             worker.deadline = time.monotonic() + budget
                             continue
+                        if message == 'members':
+                            if on_members:
+                                on_members(worker.task, payload[0], payload[1])
+                            else:
+                                worker.members.extend(payload[1])
+                            continue
                         finished = payload
                 elif time.monotonic() > worker.deadline:
                     finished = {'status': 'timeout'}
                 if finished is None:
                     continue
+                task = worker.task
                 if finished.get('status') in ('crashed', 'timeout'):
                     if worker.sha:
                         finished['sha'] = worker.sha
-                    worker.kill()
-                    task = worker.task
-                    worker.__init__(context, settings, worker.target)
-                    worker.task = None
-                    on_result(task, finished)
-                else:
-                    task = worker.task
-                    worker.task = None
-                    on_result(task, finished)
+                    replace(worker)
+                elif worker.members and isinstance(finished.get('arch'), dict):
+                    finished['arch']['members'] = worker.members
+                worker.task = None
+                release(task)
+                on_result(task, finished)
     finally:
         for worker in workers:
             try:
@@ -611,6 +779,9 @@ def run_pool(tasks, count, settings, on_result, target=None):
                 pass
         for worker in workers:
             worker.kill()
+        for worker in workers:
+            if worker.task is not None:
+                release(worker.task)
 
 
 # --------------------------------------------------------------------------- run
@@ -647,8 +818,24 @@ def check_dependencies():
         __import__(name)
 
 
-def default_workers():
-    return max(1, min(8, (os.cpu_count() or 2) - 1 or 1))
+def installed_ram():
+    """Bytes of installed memory, or None when the system does not say."""
+    try:
+        return os.sysconf('SC_PHYS_PAGES') * os.sysconf('SC_PAGE_SIZE')
+    except (ValueError, OSError, AttributeError):
+        return None
+
+
+_UNKNOWN = object()
+
+
+def default_workers(cpus=None, ram_bytes=_UNKNOWN):
+    """One worker per spare processor, up to 8, and at most one per 2 GiB of memory."""
+    count = max(1, min(8, (cpus or os.cpu_count() or 2) - 1 or 1))
+    ram = installed_ram() if ram_bytes is _UNKNOWN else ram_bytes
+    if ram:
+        count = min(count, max(1, int(ram // (2 * GIB))))
+    return count
 
 
 def run_spec(sources, output, config=None, workers=None, limits=None, tools=None, stop_after=None, log=None, report_date=None):
@@ -666,10 +853,15 @@ def run_spec(sources, output, config=None, workers=None, limits=None, tools=None
     settings['tools'] = spec_archives.probe_tools() if tools is None else dict(tools)
     descriptor = output_directory(output)
     cache = None
+    lock = None
+    previous_handler = None
     temp_dir = output / 'spec-tmp'
     try:
+        if threading.current_thread() is threading.main_thread():
+            previous_handler = signal.signal(signal.SIGTERM, _terminate)      # a terminated run stops its workers and tools and cleans up
+        lock = acquire_lock(descriptor)
         verify_output_directory(output, descriptor)
-        if temp_dir.exists():
+        if temp_dir.exists():                       # left by a run that was killed; extracted data must not outlive it
             shutil.rmtree(temp_dir, ignore_errors=True)
         os.mkdir(temp_dir, 0o700)
         settings['temp_dir'] = str(temp_dir)
@@ -701,8 +893,20 @@ def run_spec(sources, output, config=None, workers=None, limits=None, tools=None
 
         processed = [0]
 
+        holders = cache.member_owners()        # files that have member rows now; a new result must replace or remove them
+
+        def keep_members(task, start, batch):
+            holders.add(task['id'])
+            cache.add_members(task['id'], start, batch)
+
         def handle(task, result):
             entry = by_id[task['id']]
+            arch = result.get('arch')
+            if entry.id in holders:
+                kept = arch.get('n', 0) if isinstance(arch, dict) and 'members' not in arch else 0
+                cache.drop_members(entry.id, kept)          # nothing of a failed or older read stays; a finished read keeps its own rows
+                if not kept:
+                    holders.discard(entry.id)
             cache.put(entry, result)
             progress.add(entry.size)
             processed[0] += 1
@@ -713,11 +917,11 @@ def run_spec(sources, output, config=None, workers=None, limits=None, tools=None
         second = [entry for entry in todo if raw_extension(entry.name) == 'mbox']
         try:
             if first:
-                run_pool(first, count, settings, handle)
+                run_pool(first, count, settings, handle, on_members=keep_members)
             if second:
                 known_ids = mailbox_message_ids(cache, entries, cfg)
                 tasks = [task_for(entry, {'known': sorted(known_ids.get(mailbox_of(entry, cfg), ()))}) for entry in second]
-                run_pool(tasks, count, settings, handle)
+                run_pool(tasks, count, settings, handle, on_members=keep_members)
         except (SpecInterrupted, KeyboardInterrupt):
             cache.commit()
             raise SpecInterrupted()
@@ -734,6 +938,10 @@ def run_spec(sources, output, config=None, workers=None, limits=None, tools=None
         if cache is not None:
             cache.close()
         shutil.rmtree(temp_dir, ignore_errors=True)
+        if lock is not None:
+            release_lock(descriptor, lock)
+        if previous_handler is not None:
+            signal.signal(signal.SIGTERM, previous_handler)
         os.close(descriptor)
 
 

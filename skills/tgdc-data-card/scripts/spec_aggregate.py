@@ -196,11 +196,10 @@ class Build:
             record.mailbox = self.mailbox_of(entry, self.cfg)
             record.arch, record.arch_hashes = result.get('arch'), None
             if record.arch is not None:
-                members = record.arch.pop('members', None) or []       # members are read again in pass 2; keep memory small
-                if members:
+                if record.arch.get('n'):                  # members stay in the cache and are streamed again in pass 2
                     self.archive_ids.append(identifier)
                 if record.mailbox is not None:
-                    record.arch_hashes = [m['h'] for m in members if m.get('h')]
+                    record.arch_hashes = list(self.cache.member_hashes(identifier))
             record.year = result.get('year') or (record.mail or {}).get('year')
             record.mtime_year = datetime.fromtimestamp(entry.mtime_ns / 1e9, timezone.utc).year
             record.mclass, record.part, record.category = None, False, None
@@ -217,6 +216,8 @@ class Build:
                 record.part = entry.style != 'num' or bool(leader and leader.get('kind'))
             elif entry.role == 'leader' and entry.style == 'num':
                 record.part = bool(record.arch and record.arch.get('kind'))
+            elif entry.role == 'orphan':
+                record.part = True
             record.label = extension_label(entry.name, multipart_part=record.part)
 
     # ------------------------------------------------------------------ mailboxes
@@ -410,7 +411,7 @@ class Build:
             arch = record.arch
             if arch is None or (arch.get('kind') is None and not arch.get('opened')):
                 continue
-            for key, field in (('opened', 'opened'), ('partly', 'partly'), ('lost', 'lost'), ('hidden', 'hidden')):
+            for key, field in (('opened', 'opened'), ('partly', 'partly'), ('lost', 'lost'), ('hidden', 'hidden'), ('links', 'links')):
                 archive_stats[key] += arch.get(field, 0)
             archive_stats['time_limited'] += 1 if arch.get('timeout') else 0
             for reason, number in arch.get('failed', {}).items():
@@ -420,7 +421,7 @@ class Build:
         seen = set()
         for identifier in self.archive_ids:
             entry = self.by_id[identifier]
-            for member in self.cache.get(identifier)['arch']['members']:
+            for member in self.cache.members(identifier):
                 size, sha, name = member['s'], member.get('h'), member['n']
                 base = name.rsplit('/', 1)[-1]
                 extension = raw_extension(base)
@@ -431,7 +432,7 @@ class Build:
                     category = T.ARCHIVES
                 label = extension_label(base)
                 container = bool(member.get('cont'))
-                new = (not container) and (sha is None or (sha not in loose_hashes and sha not in seen))
+                new = (not container) and not member.get('short') and (sha is None or (sha not in loose_hashes and sha not in seen))
                 if sha:
                     seen.add(sha)
                     all_hashes.add(sha)
@@ -558,6 +559,7 @@ class Build:
             'symlinks': walk.get('symlinks', 0), 'special_files': walk.get('special_files', 0), 'unreadable_folders': walk.get('unreadable_folders', 0),
             'archives': {'opened': archive_stats['opened'], 'partly_readable': archive_stats['partly'],
                          'members_not_extracted': archive_stats['lost'], 'hidden_members': archive_stats['hidden'],
+                         'links_skipped': archive_stats['links'], 'orphan_volumes': walk.get('orphan_volumes', 0),
                          'time_limited': archive_stats['time_limited'], 'not_opened': dict(sorted(state['not_opened'].items())),
                          'tools': dict(sorted(state['tools_used'].items())), 'tools_available': sorted(self.context['tools'])},
             'limits': {key: self.context['settings'][key] for key in ('max_archive_bytes', 'max_archive_ratio', 'max_depth')},
