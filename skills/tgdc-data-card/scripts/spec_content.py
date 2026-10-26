@@ -425,13 +425,18 @@ def _header_year(message):
         return None
 
 
-def body_key(message, normalized):
-    """Short key of a message that has no Message-ID: its Date, From and Subject headers and the text of its bodies.
+def body_key(message, normalized, attachment_shas=()):
+    """Short key of a message that has no Message-ID: its Date, From and Subject headers, the text of its bodies, the checksums
+    of its attachments and a hash of its recipients (To and Cc).
 
-    Two exports of the same message carry the same headers and text, whatever the file format around them."""
+    Two exports of the same message carry the same headers, text, files and recipients, whatever the file format around them;
+    two messages that differ in any of these are two messages."""
     material = [' '.join(str(message.get(name, '')).split()) for name in ('Date', 'From', 'Subject')] + sorted(set(normalized))
     if not any(material):
         return None
+    recipients = sorted({address.strip().lower() for address in _addresses(message, ['To', 'Cc'])})
+    material.append('attachments ' + ' '.join(sorted(attachment_shas)))
+    material.append('recipients ' + hashlib.sha256('\n'.join(recipients).encode('utf-8', 'replace')).hexdigest())
     return 'b:' + hashlib.sha256('\n'.join(material).encode('utf-8', 'replace')).hexdigest()[:16]
 
 
@@ -453,7 +458,7 @@ def analyze_message(data, attachments=True, deadline=None):
     facts['from'] = short_hash(senders[0]) if senders else None
     recipients = _addresses(message, ['Delivered-To']) + _addresses(message, ['To'])
     facts['to'] = sorted({short_hash(address) for address in recipients})[:40]
-    bodies, plain, html, found, normalized = [], [], [], [], []
+    bodies, plain, html, found, normalized, shas = [], [], [], [], [], []
     for part in message.walk():
         if part.is_multipart():
             continue
@@ -477,13 +482,15 @@ def analyze_message(data, attachments=True, deadline=None):
             normalized.append(hashlib.sha256(' '.join(content.split()).encode('utf-8', 'replace')).hexdigest())
             (plain if kind == 'text/plain' else html).append(content)
             continue
+        sha = hashlib.sha256(payload).hexdigest()
+        shas.append(sha)                      # also when the file itself is skipped: the key of the message must not depend on that
         if not attachments:
             continue
         if deadline is not None and time.monotonic() > deadline:
             facts['partial'] = True
             continue
         extension = raw_extension(filename or '')
-        record = {'sha': hashlib.sha256(payload).hexdigest(), 'ext': extension, 'size': len(payload),
+        record = {'sha': sha, 'ext': extension, 'size': len(payload),
                   'name': (filename or '').encode('utf-8', 'replace').decode('utf-8')}
         if extension == 'pdf' or kind == 'application/pdf':
             record['pdf'] = analyze_pdf(payload, text_pages=3, deadline=deadline)
@@ -495,7 +502,7 @@ def analyze_message(data, attachments=True, deadline=None):
     facts['bodies'] = sorted(set(bodies))
     facts['atts'] = found
     if not message_id:
-        key = body_key(message, normalized)
+        key = body_key(message, normalized, shas)
         if key:
             facts['bid'] = key
     body = '\n'.join(plain) if plain else strip_markup('\n'.join(html))

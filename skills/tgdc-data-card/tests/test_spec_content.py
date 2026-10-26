@@ -266,6 +266,44 @@ class MboxBudgetTests(unittest.TestCase):
         self.assertNotIn('known', result['messages'][1])
 
 
+    def without_id(self, to='Owner <owner@example.test>', cc=None, attachments=(), body=None):
+        data = S.eml_bytes('Offer', 'Ann <ann@example.test>', to, body or S.EN * 3, year=2022, attachments=attachments)
+        data = re.sub(rb'(?m)^Message-ID:.*\n', b'', data)
+        if cc:
+            data = re.sub(rb'(?m)^To:.*\n', lambda match: match.group(0) + b'Cc: ' + cc.encode() + b'\n', data)
+        return data
+
+    def test_messages_without_an_id_that_differ_in_their_recipients_are_not_merged(self):
+        first = C.analyze_message(self.without_id())['bid']
+        self.assertNotEqual(first, C.analyze_message(self.without_id(to='Other <other@example.test>'))['bid'])
+        self.assertNotEqual(first, C.analyze_message(self.without_id(cc='Boss <boss@example.test>'))['bid'])
+        self.assertNotEqual(C.analyze_message(self.without_id(cc='Boss <boss@example.test>'))['bid'],
+                            C.analyze_message(self.without_id(cc='Clerk <clerk@example.test>'))['bid'])
+
+    def test_messages_without_an_id_that_differ_in_their_attachments_are_not_merged(self):
+        one = [('a.pdf', b'%PDF-1.4 one', 'application/pdf')]
+        two = [('a.pdf', b'%PDF-1.4 two', 'application/pdf')]
+        keys = {C.analyze_message(self.without_id(attachments=files))['bid'] for files in ((), one, two, one + two)}
+        self.assertEqual(len(keys), 4)
+
+    def test_identical_messages_without_an_id_still_get_one_key(self):
+        pair = [('a.pdf', b'%PDF-1.4 one', 'application/pdf'), ('b.txt', b'second file', 'text/plain')]
+        first = C.analyze_message(self.without_id(to='Owner <owner@example.test>, Ann <ann@example.test>', cc='Boss <boss@example.test>', attachments=pair))
+        again = C.analyze_message(self.without_id(to='ANN <Ann@Example.test>, owner@example.test', cc='boss@example.test', attachments=pair[::-1]))
+        self.assertEqual(first['bid'], again['bid'])                                 # the order and the spelling of addresses and files do not matter
+        self.assertEqual(first['bid'], C.analyze_message(self.without_id(to='Owner <owner@example.test>, Ann <ann@example.test>', cc='Boss <boss@example.test>',
+                                                                          attachments=pair), attachments=False)['bid'])    # skipped files still count for the key
+
+    def test_a_known_message_is_not_confused_with_one_that_only_went_to_someone_else(self):
+        one = self.without_id()
+        other = self.without_id(to='Other <other@example.test>')
+        path = self.mbox([one, other])
+        with open(path, 'rb') as stream:
+            result = C.analyze_mbox(stream, {C.analyze_message(one)['bid']}, 1 << 20)
+        self.assertTrue(result['messages'][0]['known'])
+        self.assertNotIn('known', result['messages'][1])
+
+
 class XmlGuardTests(unittest.TestCase):
     ENTITY = '<?xml version="1.0" encoding="UTF-16"?><!DOCTYPE d [<!ENTITY x "boom">]><d>&x;</d>'
 
