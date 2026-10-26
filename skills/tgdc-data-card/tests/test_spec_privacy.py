@@ -202,8 +202,8 @@ class SensitivePaths(unittest.TestCase):
     def test_a_path_is_sensitive_when_any_component_is_hidden_or_credential_like(self):
         for parts in [('My Passwords',), ('ACME Credentials',), ('api_key.txt',), ('API-Key list.docx',), ('Private Key backup.txt',), ('private_key.bin',),
                       ('.ssh', 'id_rsa'), ('home', '.ssh', 'id_ed25519'), ('id_rsa',), ('x', 'service-account.json'), ('oauth_client.json',),
-                      ('token.txt',), ('tokens.json',), ('accounts.csv',), ('client_secret_1.json',), ('a', 'My Passwords', 'notes.txt'),
-                      ('mail.asc',), ('mail.GPG',), ('mail.pgp',), ('office.ovpn',), ('server.pem',), ('store.p12',), ('.env',)]:
+                      ('token.txt',), ('tokens.json',), ('client_secret_1.json',), ('a', 'My Passwords', 'notes.txt'),
+                      ('mail.GPG',), ('mail.pgp',), ('office.ovpn',), ('server.pem',), ('store.p12',), ('.env',)]:
             with self.subTest(parts=parts):
                 self.assertTrue(T.is_sensitive_path(parts))
 

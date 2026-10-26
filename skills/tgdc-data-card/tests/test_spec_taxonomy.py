@@ -50,8 +50,8 @@ class TaxonomyTests(unittest.TestCase):
 
     def test_a_path_is_sensitive_when_any_component_is_hidden_or_credential_like(self):
         sensitive = [['home', '.ssh', 'known_hosts'], ['a', 'id_ed25519'], ['service-account.json'], ['oauth_client.json'], ['token.txt'],
-                     ['tokens.json'], ['accounts.csv'], ['api_key.txt'], ['API-Key backup.txt'], ['private_key.txt'], ['My Passwords', 'list.txt'],
-                     ['ACME Credentials', 'x.txt'], ['mail', 'key.asc'], ['x.gpg'], ['x.PGP'], ['vpn', 'office.ovpn'], ['.env'], ['a', 'x.pem'],
+                     ['tokens.json'], ['api_key.txt'], ['API-Key backup.txt'], ['private_key.txt'], ['My Passwords', 'list.txt'],
+                     ['ACME Credentials', 'x.txt'], ['x.gpg'], ['x.PGP'], ['vpn', 'office.ovpn'], ['.env'], ['a', 'x.pem'],
                      ['secrets', 'readme.txt'], ['passwort.txt']]
         for parts in sensitive:
             with self.subTest(parts=parts):
@@ -148,3 +148,23 @@ class TaxonomyTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class BusinessNamesAndFormatsTests(unittest.TestCase):
+    def test_business_folders_are_not_credential_folders(self):
+        for parts in [('Accounts',), ('Accounts Payable',), ('Tokens of Appreciation',), ('Secretariat',),
+                      ('Comparole',), ('PWD Public Works',), ('grid.asc',)]:
+            self.assertFalse(T.is_sensitive_path(parts), parts)
+
+    def test_credential_folders_and_files_stay_sensitive(self):
+        for parts in [('My Passwords',), ('ACME Credentials',), ('.ssh', 'id_rsa'), ('api_key.txt',),
+                      ('service-account.json',), ('tokens.json',), ('Parole',), ('parola.txt',)]:
+            self.assertTrue(T.is_sensitive_path(parts), parts)
+
+    def test_common_business_and_engineering_formats_are_known(self):
+        expected = {'vsdx': T.OTHER, 'mpp': T.OTHER, 'psd': T.PHOTOS, 'emf': T.PHOTOS, 'shp': T.CAD,
+                    'kmz': T.STRUCTURED, 'asc': T.STRUCTURED, 'oft': T.EMAIL, 'xlam': T.SPREADSHEETS,
+                    'potx': T.PRESENTATIONS, 'dotm': T.DOCUMENTS, 'epub': T.DOCUMENTS}
+        for extension, category in expected.items():
+            self.assertEqual(T.CATEGORY_OF_EXTENSION.get(extension), category, extension)
+        self.assertNotIn('zebracli', T.CATEGORY_OF_EXTENSION)

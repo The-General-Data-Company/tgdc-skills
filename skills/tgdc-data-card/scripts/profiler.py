@@ -21,8 +21,9 @@ from questions import questions
 import spec_language
 
 DEFAULT_LIMITS = {**PARSER_LIMITS, 'max_hash_bytes': 1024 * 1024 * 1024}
+# 'accounts' is not excluded: in a business archive it is accounting, not a credential store.
 EXCLUDED_NAMES = {'credentials', 'credential', 'secrets', 'secret', 'tokens', 'token',
-                  'accounts', 'id_rsa', 'id_dsa', 'id_ecdsa', 'id_ed25519'}
+                  'id_rsa', 'id_dsa', 'id_ecdsa', 'id_ed25519'}
 EXCLUDED_EXTENSIONS = {'pem', 'key', 'p12', 'pfx', 'keystore'}
 PUBLIC_EXTENSIONS = SUPPORTED | frozenset({'dwg', 'dxf', 'dgn', 'step', 'stp', 'stl', 'ifc',
     'xls', 'xlsb', 'xlsm', 'doc', 'ppt', 'pptx', 'rtf', 'odt', 'ods', 'odp',

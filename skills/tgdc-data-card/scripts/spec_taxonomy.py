@@ -34,24 +34,25 @@ NO_EXTENSION = '(no extension)'
 IRREGULAR_EXTENSION = '(other / irregular extension)'
 
 _EXTENSION_GROUPS = {
-    DOCUMENTS: 'pdf doc docx docm dot dotx rtf odt ott txt md html htm xhtml mht wpd wps pages tex',
+    DOCUMENTS: 'pdf doc docx docm dot dotx dotm rtf odt ott txt md html htm xhtml mht wpd wps pages tex one epub djvu xps oxps',
     SCANNED: 'tif tiff',
-    SPREADSHEETS: 'xls xlsx xlsb xlsm xlt xltx ods csv tsv numbers',
-    PRESENTATIONS: 'ppt pptx pptm pps ppsx odp key',
+    SPREADSHEETS: 'xls xlsx xlsb xlsm xlt xltx xltm xlam ods csv tsv numbers',
+    PRESENTATIONS: 'ppt pptx pptm pps ppsx potx potm ppam odp key',
     CAD: ('dwg dxf dgn dws dwt dwf dwfx shx skp ctb stb pc3 lin pat step stp iges igs stl ifc rvt rfa ipt iam idw '
-          'sldprt sldasm slddrw 3dm 3ds fcstd sat vwx'),
-    PHOTOS: 'jpg jpeg jpe jfif png gif bmp svg webp heic heif cr2 nef arw dng ico',
+          'sldprt sldasm slddrw 3dm 3ds fcstd sat vwx shp prj catpart catproduct x_t x_b obj fbx dae 3mf nwd nwc'),
+    PHOTOS: 'jpg jpeg jpe jfif png gif bmp svg webp heic heif cr2 nef arw dng ico raw orf rw2 tga psd ai eps emf wmf indd',
     AUDIO_VIDEO: ('mp3 wav wma aac flac ogg m4a amr mid midi mp4 wmv avi mov mkv mpg mpeg 3gp flv webm m4v vob'),
-    EMAIL: 'eml emlx msg mbox mbx pst ost vcf ics',
+    EMAIL: 'eml emlx msg mbox mbx pst ost vcf ics oft nsf',
     ESIGNED: 'p7s p7m',
     ARCHIVES: 'zip zipx rar 7z arj cab tar gz tgz bz2 tbz2 xz txz lzh lha ace z',
     STRUCTURED: ('xml json jsonl yaml yml bak dbf dat mdb accdb sqlite sqlite3 sql parquet avro orc kml gml geojson '
-                 'xsd rdf'),
-    CREDENTIALS: 'p12 pfx pem key keystore jks kdbx kdb ppk cer crt der csr p8 p7b spc keychain asc gpg pgp ovpn',
+                 'xsd rdf kmz gpx mdf ldf asc'),
+    CREDENTIALS: 'p12 pfx pem key keystore jks kdbx kdb ppk cer crt der csr p8 p7b spc keychain gpg pgp ovpn',
     SYSTEM: 'db log tmp temp ini lnk dwl dwl2 swp swo crdownload part cache lock pid thumbs',
     SOURCE: ('php phtml js mjs css less scss sass ts tsx jsx py rb pl sh bash zsh java c cpp h hpp cs go rs swift kt '
              'lua ps1 vbs asp aspx jsp vue ttf otf woff woff2 eot mo po pot map'),
     PROGRAMS: 'exe msi dll sys bin com bat cmd inf apk app dmg pkg deb rpm jar scr ocx drv cpl',
+    OTHER: 'vsd vsdx vss vssx vst vstx mpp mpt pub',
 }
 CATEGORY_OF_EXTENSION = {extension: category for category, names in _EXTENSION_GROUPS.items() for extension in names.split()}
 
@@ -63,9 +64,10 @@ IMAGE_SHEET_EXTENSIONS = frozenset('jpg jpeg jpe jfif png bmp gif webp'.split())
 TEXT_EXTRACTABLE = frozenset('pdf doc docx docm rtf odt txt md html htm xhtml xlsx xlsm ods csv tsv pptx pptm ppsx odp eml tif tiff'.split())
 EXAMINED_CATEGORIES = frozenset([DOCUMENTS, SCANNED, SPREADSHEETS, PRESENTATIONS, EMAIL])
 
-_CREDENTIAL_SUBSTRINGS = ('password', 'passwort', 'kennwort', 'credential', 'parola', 'parole', 'passphrase',
+_CREDENTIAL_SUBSTRINGS = ('password', 'passwort', 'kennwort', 'credential', 'passphrase',
                           'contrasena', 'privatekey', 'apikey')
-_CREDENTIAL_TOKENS = frozenset(['pwd', 'passwd', 'secret', 'secrets'])
+# Whole words only: 'parola' and 'parole' are Romanian for password(s); as substrings they would match words like 'comparole'.
+_CREDENTIAL_TOKENS = frozenset(['passwd', 'secret', 'secrets', 'parola', 'parole'])
 _CREDENTIAL_PAIRS = frozenset([('api', 'key'), ('private', 'key')])
 
 

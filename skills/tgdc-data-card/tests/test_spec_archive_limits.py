@@ -25,7 +25,7 @@ from spec_pool_targets import hold_a_tool
 SEVEN = shutil.which('7zz') or shutil.which('7z')
 BSDTAR = shutil.which('bsdtar') or ('/usr/bin/bsdtar' if Path('/usr/bin/bsdtar').exists() else None)
 CREDENTIAL_MEMBERS = ['home/.ssh/id_rsa', 'home/.ssh/id_ed25519', 'keys/service-account.json', 'keys/oauth_client.json', 'token.txt', 'tokens.json',
-                      'accounts.csv', 'api_key.txt', 'My Passwords/list.txt', 'ACME Credentials/x.txt']
+                      'api_key.txt', 'My Passwords/list.txt', 'ACME Credentials/x.txt']
 
 
 def zip_bytes(entries):
