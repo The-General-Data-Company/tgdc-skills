@@ -128,7 +128,7 @@ Reads files and folders you select on your own machine and builds one reviewable
 
 **1. The skill** (download a pinned release and verify its checksum)
 ```sh
-V=1.1.0
+V=1.1.1
 R=https://github.com/The-General-Data-Company/tgdc-skills/releases/download/tgdc-data-card-v$V
 curl -fsSLO $R/tgdc-data-card-v$V.tar.gz
 curl -fsSLO $R/SHA256SUMS

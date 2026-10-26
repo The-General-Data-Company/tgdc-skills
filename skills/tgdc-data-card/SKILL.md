@@ -5,7 +5,7 @@ license: Apache-2.0
 compatibility: Local coding agent with a shell and permission to read the selected files. Python 3.11 or newer on macOS or POSIX/Linux; tested on macOS (Apple silicon) with Python 3.12, 3.13 and 3.14, Linux and Python 3.11 are untested, Windows is unsupported. Dependencies in scripts/requirements.txt are installed from PyPI into an isolated virtual environment. An optional extraction tool (7zz, 7z, bsdtar or unar with its lsar) on PATH lets the full pass open 7z, RAR, ARJ and CAB archives.
 metadata:
   author: The General Data Company
-  version: "1.1.0"
+  version: "1.1.1"
   homepage: https://thegeneraldata.com
 ---
 
