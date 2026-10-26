@@ -7,6 +7,7 @@ import subprocess
 import sys
 import tarfile
 import tempfile
+import threading
 import time
 import unicodedata
 import unittest
@@ -421,6 +422,32 @@ for a in "$@"; do case "$a" in -o*) out="${{a#-o}}";; esac; done
         process.terminate()
         process.join(10)
         self.assertTrue(gone_within(started), 'SIGTERM to the worker must stop the tool group')
+
+    def test_a_worker_that_lost_its_parent_stops_the_tool_and_leaves_its_folder_clean(self):
+        pids = self.base / 'pids.txt'
+        tool = self.fake_seven(10, f'sleep 120 &\necho $! >> "{pids}"\necho $$ >> "{pids}"\nwait')
+        reader = self.reader({'7zz': tool})
+        parent = [os.getppid()]
+
+        def lose_the_parent():                                      # once the tool runs, the parent this worker started under is gone
+            while not (pids.exists() and len(pids.read_text().split()) == 2):
+                time.sleep(0.01)
+            parent[0] = 0
+        threading.Thread(target=lose_the_parent, daemon=True).start()
+        with mock.patch.object(A, '_PARENT', parent):
+            with self.assertRaises(A.ParentGone):
+                self.open(reader, '7z', 'x.7z', b'7z\xbc\xaf\x27\x1c' + b'\x00' * 100)
+        self.assertTrue(gone_within([int(p) for p in pids.read_text().split()]), 'the tool and its child must both be stopped')
+        self.assertEqual(list(self.work.iterdir()), [])
+
+    def test_every_reading_loop_of_a_worker_that_lost_its_parent_ends(self):
+        reader = self.reader({})
+        with mock.patch.object(A, '_PARENT', [0]):
+            with self.assertRaises(A.ParentGone):
+                reader.check_time()
+            with self.assertRaises(A.ParentGone):
+                reader.hash_only(io.BytesIO(b'x' * 10))
+        reader.check_time()                                          # outside a worker nothing is watched
 
     def test_a_size_listing_over_the_allowance_stops_unar_before_it_runs(self):
         marker = self.base / 'unar-ran'

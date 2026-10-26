@@ -553,6 +553,14 @@ def _unchanged(descriptor, task):
     return (info.st_size, info.st_mtime_ns) == (task['identity'][2], task['identity'][3])
 
 
+def watched_lines(stream):
+    """The lines of a stream; a worker whose parent died leaves within a few thousand lines."""
+    for number, line in enumerate(stream):
+        if number % 4096 == 0:
+            spec_archives.check_parent()
+        yield line
+
+
 def process_task(task, settings, stage, descriptors, emit=None):
     """Hash one file and extract its facts. The file arrives as an open descriptor, never as a path.
 
@@ -583,6 +591,7 @@ def process_task(task, settings, stage, descriptors, emit=None):
                 head = block[:600]
             digest.update(block)
             total += len(block)
+            spec_archives.check_parent()
             if text_head and len(text) < spec_content.TEXT_HEAD_BYTES:
                 text.extend(block[:spec_content.TEXT_HEAD_BYTES - len(text)])
         if total != size:
@@ -604,7 +613,7 @@ def process_task(task, settings, stage, descriptors, emit=None):
                 result['unreadable'] = True
             elif extension == 'mbox':
                 stream.seek(0)
-                result['mbox'] = spec_content.analyze_mbox(stream, settings.get('known', {}).get(task.get('mailbox'), ()), settings['max_message_bytes'],
+                result['mbox'] = spec_content.analyze_mbox(watched_lines(stream), settings.get('known', {}).get(task.get('mailbox'), ()), settings['max_message_bytes'],
                                                            deadline=now + settings['archive_seconds'])
             elif role == 'leader' and task.get('style') == 'num':
                 result['arch'] = _read_archive(task, streams, size, name, None, settings, emit)
@@ -677,7 +686,7 @@ def _read_archive(task, streams, size, name, kind, settings, emit=None):
 
 
 def worker_main(connection, settings):
-    spec_archives.install_termination_handler()
+    spec_archives.install_termination_handler(settings.get('parent_pid'))
     with open(os.devnull, 'w') as sink:
         os.dup2(sink.fileno(), 1)
         os.dup2(sink.fileno(), 2)
@@ -759,6 +768,7 @@ def run_pool(tasks, count, settings, on_result, target=None, on_members=None):
     Each task that may hold an archive gets a private temporary folder, made here and removed here once the task is over.
     Archive members arrive in batches and go to on_members(task, start, batch), or into the result when it is not given."""
     context = multiprocessing.get_context('spawn')
+    settings = {**settings, 'parent_pid': os.getpid()}          # a worker leaves when this process is gone
     pending = deque(tasks)
     workers = [Worker(context, settings, target or worker_main) for _ in range(max(1, min(count, len(pending) or 1)))]
 

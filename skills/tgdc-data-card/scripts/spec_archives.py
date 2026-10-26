@@ -103,13 +103,28 @@ def terminate_tools():
                 pass
 
 
-def install_termination_handler():
-    """In a worker: on SIGTERM stop every tool process group first, then exit by the signal."""
+_PARENT = [None]    # pid of the process that started this worker; None outside a worker
+
+
+class ParentGone(SystemExit):
+    """The process that started this worker is gone. Not an Exception: it unwinds the worker, which removes its folders on the way."""
+
+
+def install_termination_handler(parent=None):
+    """In a worker: on SIGTERM stop every tool process group first, then exit by the signal. Also remember the parent process."""
     def handler(signum, frame):
         terminate_tools()
         signal.signal(signum, signal.SIG_DFL)
         os.kill(os.getpid(), signum)
     signal.signal(signal.SIGTERM, handler)
+    _PARENT[0] = parent or os.getppid()
+
+
+def check_parent():
+    """In a worker whose parent died (it was killed): stop every tool process group and leave. No effect outside a worker."""
+    if _PARENT[0] is not None and os.getppid() != _PARENT[0]:
+        terminate_tools()
+        raise ParentGone(1)
 
 
 def lsar_for(unar_path):
@@ -240,6 +255,7 @@ class Reader:
 
     # ------------------------------------------------------------------ budgets
     def check_time(self):
+        check_parent()
         if self.deadline is not None and time.monotonic() > self.deadline:
             self.timed_out = True
             raise TimeUp()
@@ -589,6 +605,7 @@ class Reader:
                 return process.wait(timeout=interval)
             except subprocess.TimeoutExpired:
                 pass
+            check_parent()
             if time.monotonic() - started > timeout:
                 raise subprocess.TimeoutExpired(arguments, timeout)
             self.check_time()

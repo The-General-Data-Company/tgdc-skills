@@ -4,6 +4,7 @@ import io
 import json
 import os
 import shutil
+import signal
 import sqlite3
 import stat
 import subprocess
@@ -272,6 +273,57 @@ if __name__ == '__main__':
         self.assertEqual([pid for pid in started if _alive(pid)], [])
         self.assertFalse((self.out / 'spec-tmp').exists())
         self.assertFalse((self.out / formatspec.LOCK_NAME).exists())
+
+
+class OrphanedWorkerTests(Base):
+    def test_a_worker_whose_parent_was_killed_stops_its_tool_and_exits(self):
+        pids = self.base / 'pids.txt'
+        tool = self.base / 'fake7zz'
+        tool.write_text(f'''#!/bin/sh
+if [ "$1" = "l" ]; then
+  printf 'Path = a.txt\\nSize = 10\\nFolder = -\\nAttributes = A\\nEncrypted = -\\n\\n'
+  exit 0
+fi
+sleep 120 &
+echo $! >> "{pids}"
+echo $$ >> "{pids}"
+echo $PPID >> "{pids}"
+wait
+''')
+        os.chmod(tool, 0o755)
+        (self.data / 'x.7z').write_bytes(b"7z\xbc\xaf'\x1c" + b'\x00' * 200)
+        driver = self.base / 'driver.py'
+        driver.write_text(f'''
+import sys
+sys.path.insert(0, {str(HERE.parent / 'scripts')!r})
+import formatspec
+
+if __name__ == '__main__':
+    formatspec.run_spec([{str(self.data)!r}], {str(self.out)!r}, workers=1, tools={{'7zz': {str(tool)!r}}}, log=open('/dev/null', 'w'))
+''')
+        process = subprocess.Popen([sys.executable, str(driver)], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        started = []
+
+        def clean_up():
+            for pid in started:
+                try:
+                    os.kill(pid, signal.SIGKILL)
+                except OSError:
+                    pass
+            if process.poll() is None:
+                process.kill()
+        self.addCleanup(clean_up)
+        end = time.monotonic() + 60
+        while time.monotonic() < end and not (pids.exists() and len(pids.read_text().split()) == 3):
+            time.sleep(0.05)
+        started.extend(int(p) for p in pids.read_text().split())
+        self.assertEqual(len(started), 3, 'the tool must be running before its parent is killed')
+        process.kill()
+        process.wait(timeout=60)
+        end = time.monotonic() + 15
+        while time.monotonic() < end and any(_alive(pid) for pid in started):
+            time.sleep(0.05)
+        self.assertEqual([pid for pid in started if _alive(pid)], [], 'the tool, its child and the worker must all be gone')
 
 
 class VolumeAndLinkTests(Base):
