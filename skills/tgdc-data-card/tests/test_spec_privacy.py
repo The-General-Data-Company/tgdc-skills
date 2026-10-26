@@ -198,5 +198,46 @@ class ConfigLabels(unittest.TestCase):
         self.config(stages={'items': [{'name': 'z' * 60, 'patterns': ['x']}]})
 
 
+class SensitivePaths(unittest.TestCase):
+    def test_a_path_is_sensitive_when_any_component_is_hidden_or_credential_like(self):
+        for parts in [('My Passwords',), ('ACME Credentials',), ('api_key.txt',), ('API-Key list.docx',), ('Private Key backup.txt',), ('private_key.bin',),
+                      ('.ssh', 'id_rsa'), ('home', '.ssh', 'id_ed25519'), ('id_rsa',), ('x', 'service-account.json'), ('oauth_client.json',),
+                      ('token.txt',), ('tokens.json',), ('accounts.csv',), ('client_secret_1.json',), ('a', 'My Passwords', 'notes.txt'),
+                      ('mail.asc',), ('mail.GPG',), ('mail.pgp',), ('office.ovpn',), ('server.pem',), ('store.p12',), ('.env',)]:
+            with self.subTest(parts=parts):
+                self.assertTrue(T.is_sensitive_path(parts))
+
+    def test_ordinary_paths_are_not_sensitive(self):
+        for parts in [('Reports', 'plan.pdf'), ('Company', 'Projects', 'passport scan.jpg'), ('bypass design.pdf',), ('keyboard.txt',),
+                      ('monkey.jpg',), ('Private Clients', 'terms.docx'), ('api documentation.pdf',), ('ascii.txt',), ()]:
+            with self.subTest(parts=parts):
+                self.assertFalse(T.is_sensitive_path(parts))
+
+    def test_the_loose_file_walk_does_not_enter_credential_folders_and_does_not_parse_credential_files(self):
+        with tempfile.TemporaryDirectory() as folder:
+            base = Path(folder).resolve()
+            root = base / 'data'
+            for name in ('My Passwords', 'ACME Credentials', '.ssh'):
+                (root / name).mkdir(parents=True)
+            (root / 'My Passwords/list.txt').write_text('the quick brown fox ' * 50)
+            (root / 'ACME Credentials/x.txt').write_text('inside a credentials folder ' * 20)
+            (root / '.ssh/id_rsa').write_text('PRIVATE KEY MATERIAL')
+            (root / 'api_key.txt').write_text('sk-synthetic-sentinel-value ' * 20)
+            (root / 'normal.txt').write_text(S.EN * 3)
+            entries, stats = formatspec.walk_roots([root])
+            self.assertEqual([(entry.rel, entry.credential) for entry in entries], [('api_key.txt', True), ('normal.txt', False)])
+            self.assertEqual((stats['hidden_entries'], stats['credential_folders']), (1, 2))
+            spec = formatspec.run_spec([root], base / 'out', workers=1, tools={}, report_date=NOW, log=LOG)
+            self.assertEqual(spec['totals']['files'], 2)
+            credentials = next(c for c in spec['categories'] if c['name'] == T.CREDENTIALS)
+            self.assertEqual(credentials['files'], 1)
+            import sqlite3
+            db = sqlite3.connect(str(base / 'out/spec-cache.private.sqlite'))
+            rows = {os.fsdecode(path): json.loads(result) for path, result in db.execute('select path, result from files')}
+            db.close()
+            self.assertEqual(sorted(rows), ['api_key.txt', 'normal.txt'])
+            self.assertEqual(set(rows['api_key.txt']), {'status', 'sha'})        # counted and hashed, never parsed
+
+
 if __name__ == '__main__':
     unittest.main()

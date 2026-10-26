@@ -47,7 +47,7 @@ _EXTENSION_GROUPS = {
     ARCHIVES: 'zip zipx rar 7z arj cab tar gz tgz bz2 tbz2 xz txz lzh lha ace z',
     STRUCTURED: ('xml json jsonl yaml yml bak dbf dat mdb accdb sqlite sqlite3 sql parquet avro orc kml gml geojson '
                  'xsd rdf'),
-    CREDENTIALS: 'p12 pfx pem key keystore jks kdbx kdb ppk cer crt der csr p8 p7b spc keychain',
+    CREDENTIALS: 'p12 pfx pem key keystore jks kdbx kdb ppk cer crt der csr p8 p7b spc keychain asc gpg pgp ovpn',
     SYSTEM: 'db log tmp temp ini lnk dwl dwl2 swp swo crdownload part cache lock pid thumbs',
     SOURCE: ('php phtml js mjs css less scss sass ts tsx jsx py rb pl sh bash zsh java c cpp h hpp cs go rs swift kt '
              'lua ps1 vbs asp aspx jsp vue ttf otf woff woff2 eot mo po pot map'),
@@ -66,6 +66,7 @@ EXAMINED_CATEGORIES = frozenset([DOCUMENTS, SCANNED, SPREADSHEETS, PRESENTATIONS
 _CREDENTIAL_SUBSTRINGS = ('password', 'passwort', 'kennwort', 'credential', 'parola', 'parole', 'passphrase',
                           'contrasena', 'privatekey', 'apikey')
 _CREDENTIAL_TOKENS = frozenset(['pwd', 'passwd', 'secret', 'secrets'])
+_CREDENTIAL_PAIRS = frozenset([('api', 'key'), ('private', 'key')])
 
 
 def fold(text):
@@ -129,7 +130,21 @@ def is_credential_name(name):
     stem = fold(PurePosixPath(base).stem)
     if any(word in stem for word in _CREDENTIAL_SUBSTRINGS):
         return True
-    return bool(set(re.findall(r'[a-z0-9]+', stem)) & _CREDENTIAL_TOKENS)
+    words = re.findall(r'[a-z0-9]+', stem)
+    return bool(set(words) & _CREDENTIAL_TOKENS) or any(pair in _CREDENTIAL_PAIRS for pair in zip(words, words[1:]))
+
+
+def is_sensitive_path(parts):
+    """True when any component of a path is hidden (starts with a dot) or credential-like by name or extension.
+
+    The union of profiler.excluded() and is_credential_name(), with api_key, private_key and the extensions .asc, .gpg, .pgp and .ovpn.
+    Only names are inspected; nothing is opened. A sensitive folder is not entered, a sensitive file is counted and hashed but never parsed."""
+    from profiler import excluded          # imported here: profiler imports spec_language, which imports this module
+    for part in parts:
+        part = str(part)
+        if part.startswith('.') or is_credential_name(part) or excluded(PurePosixPath(part)):
+            return True
+    return False
 
 
 def is_system_name(name):

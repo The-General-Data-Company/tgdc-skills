@@ -25,9 +25,9 @@ from pathlib import Path
 
 import spec_archives
 import spec_content
-from profiler import (checked_path, excluded, open_nofollow, output_directory, prepare_roots, require_supported_platform,
+from profiler import (checked_path, open_nofollow, output_directory, prepare_roots, require_supported_platform,
                       verify_output_directory, write_json)
-from spec_taxonomy import is_credential_name, is_short_label, raw_extension
+from spec_taxonomy import is_short_label, is_sensitive_path, raw_extension
 
 SCHEMA = 'tgdc-format-spec/1.0'
 ENGINE = 4
@@ -185,14 +185,16 @@ class Entry:
 
 
 def walk_roots(roots):
-    """Every regular, non-hidden file below the roots. Links are never followed; hidden entries are not entered."""
+    """Every regular, non-hidden file below the roots. Links are never followed; hidden entries and folders with credential-like names are not entered.
+
+    The ancestors of a name were checked on the way down, so checking the name itself covers every path component."""
     entries = []
     stats = Counter()
     for index, root in enumerate(roots):
         if root.is_file():
             details = root.stat(follow_symlinks=False)
             entries.append(Entry(index, root.name, str(root), details.st_size, details.st_mtime_ns, details.st_dev, details.st_ino,
-                                 excluded(root) or is_credential_name(root.name)))
+                                 is_sensitive_path((root.name,))))
             continue
         stack = [(root, '')]
         while stack:
@@ -221,13 +223,13 @@ def walk_roots(roots):
                     continue
                 child = relative + '/' + name if relative else name
                 if stat.S_ISDIR(details.st_mode):
-                    if excluded(Path(name)):
+                    if is_sensitive_path((name,)):
                         stats['credential_folders'] += 1
                     else:
                         stack.append((directory / name, child))
                 elif stat.S_ISREG(details.st_mode):
                     entries.append(Entry(index, child, str(directory / name), details.st_size, details.st_mtime_ns, details.st_dev,
-                                         details.st_ino, excluded(Path(name)) or is_credential_name(name)))
+                                         details.st_ino, is_sensitive_path((name,))))
                 else:
                     stats['special_files'] += 1
     entries.sort(key=lambda entry: (entry.root, entry.rel))
