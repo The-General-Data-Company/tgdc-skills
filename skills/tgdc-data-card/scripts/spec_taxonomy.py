@@ -59,6 +59,7 @@ CATEGORY_OF_EXTENSION = {extension: category for category, names in _EXTENSION_G
 ARCHIVE_EXTENSIONS = frozenset(_EXTENSION_GROUPS[ARCHIVES].split())
 SCRIPT_LOG_EXTENSIONS = frozenset('py sh bash zsh bat cmd ps1 js rb pl log'.split())
 CREDENTIAL_EXTENSIONS = frozenset(_EXTENSION_GROUPS[CREDENTIALS].split())
+KEYNOTE_SIGNATURE = b'PK\x03\x04'          # a .key file that starts like this is a Keynote presentation, not a key
 IMAGE_SHEET_EXTENSIONS = frozenset('jpg jpeg jpe jfif png bmp gif webp'.split())
 # Formats whose text the specification can read for the language table.
 TEXT_EXTRACTABLE = frozenset('pdf doc docx docm rtf odt txt md html htm xhtml xlsx xlsm ods csv tsv pptx pptm ppsx odp eml tif tiff'.split())
@@ -157,13 +158,16 @@ def is_system_name(name):
     return lowered.startswith('~$') or lowered.endswith('~') or lowered in ('thumbs.db', 'desktop.ini')
 
 
-def category_of(name, pdf_scanned=False, multipart_part=False, mail_metadata=False):
-    """Content category for a file name and the few measured facts that decide it."""
+def category_of(name, pdf_scanned=False, multipart_part=False, mail_metadata=False, keynote=False):
+    """Content category for a file name and the few measured facts that decide it. A .key file is a credential file unless its
+    first bytes showed a Keynote presentation (keynote)."""
     extension = raw_extension(name)
-    if is_credential_name(name):
+    if is_credential_name(name) and not keynote:
         return CREDENTIALS
     if is_system_name(name):
         return SYSTEM
+    if keynote:
+        return PRESENTATIONS
     if multipart_part:
         return ARCHIVES
     if mail_metadata and extension in ('json', 'csv'):

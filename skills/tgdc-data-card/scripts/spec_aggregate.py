@@ -368,7 +368,7 @@ class Build:
                 record.category = CREDENTIALS
             else:
                 record.category = T.category_of(record.name, pdf_scanned=bool(pdf.get('scanned')) and not pdf.get('unchecked'),
-                                                multipart_part=record.part, mail_metadata=record.mclass == 'meta')
+                                                multipart_part=record.part, mail_metadata=record.mclass == 'meta', keynote=record.entry.keynote)
                 if record.category == T.OTHER and record.arch is not None and record.arch.get('kind'):
                     record.category = T.ARCHIVES
             size = record.size
@@ -466,7 +466,8 @@ class Build:
                 extension = raw_extension(base)
                 cred = bool(member.get('cred'))
                 pdf = member.get('pdf') or {}
-                category = CREDENTIALS if cred else T.category_of(base, pdf_scanned=bool(pdf.get('scanned')) and not pdf.get('unchecked'))
+                category = CREDENTIALS if cred else T.category_of(base, pdf_scanned=bool(pdf.get('scanned')) and not pdf.get('unchecked'),
+                                                                   keynote=bool(member.get('keynote')))
                 if category == T.OTHER and member.get('arch'):
                     category = T.ARCHIVES
                 label = extension_label(base)

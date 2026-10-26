@@ -30,7 +30,7 @@ import spec_archives
 import spec_content
 from profiler import (checked_path, open_nofollow, output_directory, prepare_roots, require_supported_platform,
                       verify_output_directory, write_json)
-from spec_taxonomy import ARCHIVE_EXTENSIONS, IMAGE_SHEET_EXTENSIONS, is_short_label, is_sensitive_path, raw_extension
+from spec_taxonomy import ARCHIVE_EXTENSIONS, IMAGE_SHEET_EXTENSIONS, KEYNOTE_SIGNATURE, is_short_label, is_sensitive_path, raw_extension
 
 SCHEMA = 'tgdc-format-spec/1.0'
 ENGINE = 7
@@ -204,13 +204,24 @@ def load_config(path):
 
 # --------------------------------------------------------------------------- inventory
 class Entry:
-    __slots__ = ('root', 'rel', 'path', 'name', 'size', 'mtime_ns', 'dev', 'ino', 'credential', 'role', 'parts', 'style', 'leader', 'id')
+    __slots__ = ('root', 'rel', 'path', 'name', 'size', 'mtime_ns', 'dev', 'ino', 'credential', 'keynote', 'role', 'parts', 'style', 'leader', 'id')
 
-    def __init__(self, root, rel, path, size, mtime_ns, dev, ino, credential):
+    def __init__(self, root, rel, path, size, mtime_ns, dev, ino, credential, keynote=False):
         self.root, self.rel, self.path, self.name = root, rel, path, rel.rsplit('/', 1)[-1]
-        self.size, self.mtime_ns, self.dev, self.ino, self.credential = size, mtime_ns, dev, ino, credential
+        self.size, self.mtime_ns, self.dev, self.ino, self.credential, self.keynote = size, mtime_ns, dev, ino, credential, keynote
         self.role = self.parts = self.style = self.leader = None
         self.id = os.fsencode(f'{root}:{rel}')
+
+
+def classify_file(path, name):
+    """(credential, keynote) of a file. Only the name is looked at, except for a .key file whose name has nothing else credential-like:
+    its first four bytes tell a Keynote presentation (a zip signature) from a key file. Nothing else is opened."""
+    if not is_sensitive_path((name,)):
+        return False, False
+    if (raw_extension(name) == 'key' and not name.startswith('.') and not is_sensitive_path((name[:-len('.key')],))
+            and head_of(path, len(KEYNOTE_SIGNATURE)) == KEYNOTE_SIGNATURE):
+        return False, True
+    return True, False
 
 
 def walk_roots(roots):
@@ -223,7 +234,7 @@ def walk_roots(roots):
         if root.is_file():
             details = root.stat(follow_symlinks=False)
             entries.append(Entry(index, root.name, str(root), details.st_size, details.st_mtime_ns, details.st_dev, details.st_ino,
-                                 is_sensitive_path((root.name,))))
+                                 *classify_file(str(root), root.name)))
             continue
         stack = [(root, '')]
         while stack:
@@ -258,7 +269,7 @@ def walk_roots(roots):
                         stack.append((directory / name, child))
                 elif stat.S_ISREG(details.st_mode):
                     entries.append(Entry(index, child, str(directory / name), details.st_size, details.st_mtime_ns, details.st_dev,
-                                         details.st_ino, is_sensitive_path((name,))))
+                                         details.st_ino, *classify_file(str(directory / name), name)))
                 else:
                     stats['special_files'] += 1
     entries.sort(key=lambda entry: (entry.root, entry.rel))

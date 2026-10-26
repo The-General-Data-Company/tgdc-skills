@@ -33,7 +33,7 @@ from collections import Counter
 from functools import lru_cache
 
 import spec_content
-from spec_taxonomy import ARCHIVE_EXTENSIONS, CATEGORY_OF_EXTENSION, is_sensitive_path, raw_extension
+from spec_taxonomy import ARCHIVE_EXTENSIONS, CATEGORY_OF_EXTENSION, KEYNOTE_SIGNATURE, is_sensitive_path, raw_extension
 
 DEFAULT_LIMITS = {'max_expanded_bytes': 20 * 10 ** 9, 'max_ratio': 200, 'max_depth': 5,
                   'member_parse_bytes': 128 * 1024 * 1024, 'ratio_floor_bytes': 64 * 1024 * 1024}
@@ -293,10 +293,11 @@ class Reader:
         handle.write(prefix_data)
         return handle
 
-    def hash_only(self, stream):
-        """SHA-256 and size of a stream; the bytes are neither parsed nor kept."""
-        digest = hashlib.sha256()
-        total = 0
+    def hash_only(self, stream, head=b''):
+        """SHA-256 and size of a stream; the bytes are neither parsed nor kept. head: bytes already taken from the start of the stream."""
+        digest = hashlib.sha256(head)
+        total = len(head)
+        self.charge(total)
         while True:
             self.check_time()
             block = stream.read(CHUNK)
@@ -362,8 +363,11 @@ class Reader:
             return
         if flag == 'cred':
             with opener() as stream:
-                sha, size = self.hash_only(stream)
-            self.emit({'n': label, 'x': extension, 's': size, 'h': sha, 'cred': True})
+                # A .key member with nothing else credential-like in its path may be a Keynote presentation: its first four bytes tell.
+                first = stream.read(len(KEYNOTE_SIGNATURE)) if extension == 'key' and classify_member(name[:-len('.key')]) is None else b''
+                sha, size = self.hash_only(stream, first)
+            keynote = first == KEYNOTE_SIGNATURE
+            self.emit({'n': label, 'x': extension, 's': size, 'h': sha, 'keynote' if keynote else 'cred': True})
             return
         likely_nested = extension in ARCHIVE_EXTENSIONS and depth < self.limits['max_depth']
         need_file = likely_nested or extension in ('pdf', 'tif', 'tiff') or extension not in CATEGORY_OF_EXTENSION
