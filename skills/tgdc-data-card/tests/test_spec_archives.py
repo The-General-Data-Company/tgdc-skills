@@ -86,7 +86,7 @@ class ArchiveTests(unittest.TestCase):
         reader, _ = self.read('zip', 'x.zip', data, limits={'max_ratio': 20, 'ratio_floor_bytes': 1000})
         self.assertEqual(reader.partly, 1)
 
-    def test_depth_limit_counts_a_deeper_archive_as_a_plain_file(self):
+    def test_depth_limit_records_a_deeper_archive_as_too_deep_and_the_outer_archive_as_partly_read(self):
         data = b'leaf text ' * 20
         for level in range(7):
             data = zip_bytes([('level.zip' if level else 'leaf.txt', data)])
@@ -94,6 +94,8 @@ class ArchiveTests(unittest.TestCase):
         self.assertEqual(reader.opened, 5)
         self.assertEqual(len(reader.members), 5)
         self.assertEqual(sum(1 for m in reader.members if m.get('cont')), 4)
+        self.assertEqual(dict(reader.failed), {'zip:too deep': 1})
+        self.assertEqual(reader.partly, 1)
 
     def test_damaged_archive_without_a_tool_is_not_unpacked(self):
         reader, opened = self.read('zip', 'bad.zip', b'PK\x03\x04 this is not really a zip' * 5)
@@ -166,7 +168,8 @@ class ExternalToolTests(unittest.TestCase):
         by_name = {unicodedata.normalize('NFC', m['n']): m for m in reader.members}
         self.assertEqual(sorted(by_name), ['a b.txt', 'password list.txt', 'report.pdf', 'sub/Lucrări*?.txt'])
         self.assertTrue(by_name['password list.txt']['cred'])
-        self.assertEqual(by_name['password list.txt']['h'], sha(b'top secret'))
+        self.assertEqual(by_name['password list.txt']['s'], len(b'top secret'))       # listed by name and size; never extracted or hashed
+        self.assertNotIn('h', by_name['password list.txt'])
         self.assertEqual(by_name['report.pdf']['h'], sha(self.report))
         self.assertEqual(by_name['sub/Lucrări*?.txt']['lang']['lang'], 'ro')
         self.assertEqual((reader.lost, reader.partly), (0, 0))
