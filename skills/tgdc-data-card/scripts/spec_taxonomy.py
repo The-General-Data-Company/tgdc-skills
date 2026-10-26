@@ -107,6 +107,25 @@ def is_credential_name(name):
     return bool(set(re.findall(r'[a-z0-9]+', stem)) & _CREDENTIAL_TOKENS)
 
 
+_SENSITIVE_EXTENSIONS = frozenset(['asc', 'gpg', 'pgp', 'ovpn'])
+_SENSITIVE_PAIRS = frozenset([('api', 'key'), ('private', 'key')])
+
+
+def is_sensitive_path(parts):
+    """True when any path component is hidden or credential-like by name or extension. Names only; nothing is opened."""
+    from pathlib import Path
+    from profiler import excluded
+    for part in parts:
+        if part in ('', '.'):
+            continue
+        if part.startswith('.') or excluded(Path(part)) or is_credential_name(part) or raw_extension(part) in _SENSITIVE_EXTENSIONS:
+            return True
+        words = tokens(PurePosixPath(part).stem)
+        if 'apikey' in words or 'privatekey' in words or any(pair in _SENSITIVE_PAIRS for pair in zip(words, words[1:])):
+            return True
+    return False
+
+
 def is_system_name(name):
     base = PurePosixPath(name.replace('\\', '/')).name
     lowered = base.lower()
