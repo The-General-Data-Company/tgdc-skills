@@ -857,8 +857,9 @@ def notes(spec):
     items.append(scanned)
     if any(c['name'] == T.CREDENTIALS for c in spec['categories']):
         items.append('Credential and key files (digital certificates, key stores, files holding passwords) are identified from their format and file name; '
-                     'they are never read as documents or kept, and are reported by count and size. Only a SHA-256 checksum of their bytes is computed, '
-                     'so that copies of the same file are counted once.')
+                     'they are never read as documents or kept, and are reported by count and size. Loose files and archive members that Python reads get a '
+                     'SHA-256 checksum of their bytes, so that copies of the same file are counted once; members that an extraction tool unpacks are '
+                     'counted by name and listed size, without a checksum. Folders with a credential-like name are not entered.')
     items.append("'Unique' = distinct file contents by SHA-256; copies of the same document in several folders count once.")
     if spec.get('drawings'):
         text = ('Technical drawings and schematics are counted as sheets (pages), across every location: file archive, mailboxes and the contents of the '

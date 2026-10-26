@@ -362,6 +362,15 @@ class SpecReportTests(unittest.TestCase):
         self.assertIn('3 volumes of multi-part archives have no first part and could not be opened', flat)
         self.assertNotIn('symbolic links inside compressed archives', flat)
 
+    def test_the_credential_note_says_which_files_get_a_checksum(self):
+        import spec_report
+        spec = copy.deepcopy(self.spec)
+        spec['categories'] = [category for category in spec['categories'] if category['name'] != T.CREDENTIALS] + [{'name': T.CREDENTIALS}]
+        note = next(item for item in spec_report.notes(spec) if item.startswith('Credential and key files'))
+        self.assertIn('Loose files and archive members that Python reads get a SHA-256 checksum', note)
+        self.assertIn('members that an extraction tool unpacks are counted by name and listed size, without a checksum', note)
+        self.assertIn('Folders with a credential-like name are not entered', note)
+
     def test_a_page_break_never_leaves_fewer_than_four_body_rows_on_either_side(self):
         import spec_report
         from reportlab.platypus import Paragraph

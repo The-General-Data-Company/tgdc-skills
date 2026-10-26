@@ -33,7 +33,7 @@ from profiler import (checked_path, open_nofollow, output_directory, prepare_roo
 from spec_taxonomy import ARCHIVE_EXTENSIONS, IMAGE_SHEET_EXTENSIONS, is_short_label, is_sensitive_path, raw_extension
 
 SCHEMA = 'tgdc-format-spec/1.0'
-ENGINE = 5
+ENGINE = 6
 CACHE_NAME = 'spec-cache.private.sqlite'
 LOCK_NAME = 'spec-run.lock'
 MEMBER_BATCH = 1000          # archive members sent to the parent at a time
