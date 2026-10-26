@@ -9,7 +9,7 @@ import math
 from reportlab.lib import colors
 from reportlab.lib.enums import TA_LEFT, TA_RIGHT
 from reportlab.lib.styles import ParagraphStyle
-from reportlab.platypus import CondPageBreak, Flowable, PageBreak, Paragraph, Spacer, Table, TableStyle
+from reportlab.platypus import CondPageBreak, Flowable, KeepTogether, PageBreak, Paragraph, Spacer, Table, TableStyle
 from xml.sax.saxutils import escape
 
 import report as card
@@ -827,11 +827,25 @@ def notes(spec):
     return items
 
 
+NOTES_TAIL_LINES = 8     # a page that opens with the end of the notes carries at least this many lines of them
+
+
 def notes_section(spec):
-    story = [CondPageBreak(120), Spacer(1, 10), _heading('Notes')]
-    for item in notes(spec):
-        story.append(card._paragraph('• ' + item, 8, card.MUTED))
-    return story
+    """The notes, with the heading kept with the first two notes and the last notes (at least eight lines) kept together.
+
+    A page break therefore never leaves a few lines of notes alone on a last page: either they stay with the end of the previous section or
+    a block of at least eight lines moves to the next page.
+    """
+    bullets = [card._paragraph('• ' + item, 8, card.MUTED) for item in notes(spec)]
+    tail, lines = len(bullets), 0
+    while tail > 0 and lines < NOTES_TAIL_LINES:
+        tail -= 1
+        bullets[tail].wrap(WIDTH, 10 ** 6)
+        lines += len(bullets[tail].blPara.lines)
+    heading = _heading('Notes')
+    if tail <= 2:
+        return [Spacer(1, 10), KeepTogether([heading] + bullets)]
+    return [Spacer(1, 10), KeepTogether([heading] + bullets[:2])] + bullets[2:tail] + [KeepTogether(bullets[tail:])]
 
 
 def spec_story(spec):

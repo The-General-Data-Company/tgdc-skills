@@ -25,6 +25,11 @@ TITLES = ['Summary', 'Content by category', 'File formats (top 35 by volume)', '
           'Inside the compressed archives', 'Technical drawings and schematics', 'By year', 'Notes']
 
 
+def spec_report_notes(spec):
+    import spec_report
+    return spec_report.notes(spec)
+
+
 def pdf_text(path):
     reader = PdfReader(path)
     return reader, [page.extract_text() for page in reader.pages]
@@ -214,6 +219,39 @@ class SpecReportTests(unittest.TestCase):
         self.assertEqual(spec_report.display_unit(98.9e6).short(24e3), '24.0 KB')
         self.assertEqual(spec_report.display_unit(5e6).short(5e6), '5,000.0 KB')
         self.assertEqual(spec_report.display_unit(5e6).short(640), '640 bytes')
+
+    def last_page_lines(self, pages):
+        lines = [line for line in pages[-1].splitlines()
+                 if line.strip() and 'DATA CARD / FOR REVIEW' not in line and not line.startswith('TGDC /') and '@' not in line]
+        return lines
+
+    def test_the_notes_never_leave_a_few_lines_on_a_last_page_of_their_own(self):
+        short = []
+        for count in range(20, 42):
+            spec = copy.deepcopy(self.spec)
+            spec['years']['rows'] = [{'year': 1990 + i, 'files': 1, 'bytes': 1000 * (i + 1), 'messages': i} for i in range(count)]
+            _, pages = self.render(spec, 'notes-sweep.pdf')
+            lines = self.last_page_lines(pages)
+            if 'Notes' not in pages[-1] and len(lines) < 8:
+                short.append((count, len(lines)))
+        self.assertEqual(short, [])
+
+    def test_the_notes_keep_a_heading_with_its_first_notes_and_all_notes_stay_in_order(self):
+        for count in (3, 14, 28, 33):
+            spec = copy.deepcopy(self.spec)
+            spec['years']['rows'] = [{'year': 1990 + i, 'files': 1, 'bytes': 1000 * (i + 1), 'messages': i} for i in range(count)]
+            _, pages = self.render(spec, 'notes-order.pdf')
+            for number, page in enumerate(pages):
+                lines = [line for line in page.splitlines() if line.strip()]
+                if 'Notes' in lines:
+                    after = lines[lines.index('Notes') + 1:]
+                    self.assertGreaterEqual(len([line for line in after if line.startswith('\u2022')]), 2, count)
+            text = ' '.join(' '.join(pages).split())
+            position = -1
+            for item in spec_report_notes(spec):
+                found = text.find(item[:40], position + 1)
+                self.assertGreater(found, position, item[:40])
+                position = found
 
     def test_the_reason_for_unconfirmed_languages_follows_the_counts(self):
         import spec_report
