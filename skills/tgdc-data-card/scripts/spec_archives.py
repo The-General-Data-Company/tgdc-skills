@@ -49,6 +49,9 @@ LISTING_TIMEOUT = 600
 LISTING_LIMIT = 2 * 10 ** 9           # bytes of listing text before a tool is stopped
 MEMBER_MEMORY_BYTES = 16 * 1024 * 1024    # larger members that are still parsed continue in a temporary file
 FACTS_CACHE_LIMIT = 20000             # distinct contents whose facts one archive remembers
+MESSAGE_BYTES = 2 * 1024 * 1024       # what a tool printed while it failed: the part read to find the members it names
+MESSAGE_LINE = 2048
+MESSAGE_SPLITS = 8
 SAFETY_FREE_BYTES = 256 * 1024 * 1024  # an extraction stops when the disk has less than this left
 REASONS = {'password': 'password protected', 'space': 'not enough free disk space', 'timeout': 'timeout'}
 
@@ -333,7 +336,7 @@ class Reader:
             return digest.hexdigest(), total, None, None
         return digest.hexdigest(), total, bytes(buffer), None
 
-    def add_member(self, name, declared_size, opener, depth, prefix, expect=None):
+    def add_member(self, name, declared_size, opener, depth, prefix, expect=None, doubtful=False):
         self.check_time()
         label = clean(prefix + name)
         extension = raw_extension(name)
@@ -353,9 +356,9 @@ class Reader:
         with opener() as stream:
             sha, size, data, spool = self.read_member(stream, need_file, head_only, spill_ok)
         record = {'n': label, 'x': extension, 's': size, 'h': sha}
-        short = expect is not None and size != expect
+        short = doubtful or (expect is not None and size != expect)
         if short:
-            del record['h']                 # a cut-off member has no content hash: it is never unique and never new
+            del record['h']                 # a cut-off or damaged member has no content hash: it is never unique and never new
             record['short'] = True
             self.shorts += 1
         try:
@@ -599,14 +602,19 @@ class Reader:
                 raise CapReached('listing size cap')
             interval = min(1.0, max(0.1, 4 * (time.monotonic() - scanned)))
 
-    def run_guarded(self, arguments, folder, environment, watch, allowance, timeout=EXTERNAL_TIMEOUT):
+    def run_guarded(self, arguments, folder, environment, watch, allowance, timeout=EXTERNAL_TIMEOUT, messages=None):
         """Run an extraction tool with no input, stopping its whole process group when the unpacked folder outgrows the allowance,
-        the disk runs low or the time is up. Returns the exit code."""
-        process = spawn(arguments, folder, environment)
+        the disk runs low or the time is up. What the tool prints goes to the file messages when given. Returns the exit code."""
+        sink = open(messages, 'wb') if messages else subprocess.DEVNULL
         try:
-            return self.wait_for(process, arguments, timeout, watch=watch, allowance=allowance)
+            process = spawn(arguments, folder, environment, stdout=sink, stderr=sink)
+            try:
+                return self.wait_for(process, arguments, timeout, watch=watch, allowance=allowance, size_file=messages)
+            finally:
+                stop_tool(process)
         finally:
-            stop_tool(process)
+            if messages:
+                sink.close()
 
     def run_to_file(self, arguments, folder, environment, path, timeout=LISTING_TIMEOUT):
         """Run a listing command with its output going to a file. Returns (exit code, first bytes of output and errors)."""
@@ -679,6 +687,8 @@ class Reader:
         destination = os.path.join(folder, 'out')
         os.makedirs(destination, exist_ok=True)
         environment = {'PATH': os.environ.get('PATH', ''), 'LC_ALL': 'C.UTF-8', 'LANG': 'C.UTF-8', 'HOME': folder}
+        messages = os.path.join(folder, 'messages.txt')
+        named, blind = set(), False        # members the failed tool points at; no member can be checked against the listing
         problems = 0
         try:
             listing = self.list_archive(tool, executable, target, folder, environment)
@@ -701,7 +711,8 @@ class Reader:
                     with open(list_file, 'w', encoding='utf-8') as handle:
                         handle.write('\n'.join(wanted) + '\n')
                     code = self.run_guarded([executable, 'x', '-y', '-bd', '-spd', '-scsUTF-8', '-aoa', '-o' + destination, target, '@' + list_file],
-                                            folder, environment, destination, self.allowance())
+                                            folder, environment, destination, self.allowance(), messages=messages)
+                    named = named_by_tool(messages) if code != 0 else named
                     problems += 1 if code != 0 else 0
                 expected = len(wanted)
             else:
@@ -709,12 +720,14 @@ class Reader:
                     arguments = [executable, '-xf', target, '-C', destination, '--no-same-owner', '--no-same-permissions']
                 else:
                     arguments = [executable, '-q', '-D', '-o', destination, target]
-                code = self.run_guarded(arguments, folder, environment, destination, self.allowance())
+                code = self.run_guarded(arguments, folder, environment, destination, self.allowance(), messages=messages)
                 if code != 0 and not any(os.scandir(destination)):
                     return False
+                named = named_by_tool(messages) if code != 0 else named
                 problems += 1 if code != 0 else 0
                 expected = len(wanted) + len(flagged) if listing.complete else None
                 sizes = sizes if listing.complete else {}
+                blind = code != 0 and not named and not sizes     # nothing says which member is damaged and no size can tell
             self.lose(unsafe + encrypted)
             problems += unsafe + encrypted
         except subprocess.TimeoutExpired:
@@ -729,7 +742,7 @@ class Reader:
         if seven:                       # these were never written to disk: counted from the listing, by name and listed size
             for flag, path, size in flagged:
                 self.record_flagged(flag, path, size, prefix)
-        found, shorts = self.walk_extracted(destination, depth, prefix, sizes, record_flagged=not seven)
+        found, shorts = self.walk_extracted(destination, depth, prefix, sizes, record_flagged=not seven, named=named, blind=blind)
         if expected is not None:
             missing = max(0, expected - found)
             self.lose(missing)
@@ -739,11 +752,12 @@ class Reader:
             self.partly += 1
         return True
 
-    def walk_extracted(self, destination, depth, prefix, sizes=None, record_flagged=True):
+    def walk_extracted(self, destination, depth, prefix, sizes=None, record_flagged=True, named=(), blind=False):
         """Process every regular file below a private extraction folder. Links are never followed.
 
-        Credential-named and hidden files are deleted unread in a first pass, before any other file is opened. Returns
-        (regular files found, members shorter than the listing says)."""
+        Credential-named and hidden files are deleted unread in a first pass, before any other file is opened. A member that is
+        shorter than the listing says, that the failed tool names, or any member when blind, is counted but not hashed. Returns
+        (regular files found, members that were not confirmed)."""
         found = 0
         for path, relative, info in self.regular_files(destination):
             found += 1
@@ -758,8 +772,9 @@ class Reader:
         shorts_before = self.shorts
         for path, relative, info in self.regular_files(destination):
             self.check_time()
-            expect = (sizes or {}).get(unicodedata.normalize('NFC', relative))
-            self.add_member(relative, info.st_size, lambda path=path: open(path, 'rb'), depth, prefix, expect=expect)
+            normalized = unicodedata.normalize('NFC', relative)
+            self.add_member(relative, info.st_size, lambda path=path: open(path, 'rb'), depth, prefix, expect=(sizes or {}).get(normalized),
+                            doubtful=blind or normalized in named)
             try:
                 os.unlink(path)
             except OSError:
@@ -806,6 +821,25 @@ def folder_size(path):
         except OSError:
             continue
     return total
+
+
+def named_by_tool(path):
+    """Member paths that the messages of a failed tool point at, NFC normalized: the text before or after a colon followed by a
+    space ('b.bin: Truncated ZIP file data', 'ERROR: CRC Failed : b.bin'). Only the first part of the messages is read."""
+    found = set()
+    with open(path, 'rb') as handle:
+        text = handle.read(MESSAGE_BYTES).decode('utf-8', 'replace')
+    for line in text.split('\n'):
+        line = line[:MESSAGE_LINE]
+        start = 0
+        for _ in range(MESSAGE_SPLITS):
+            at = line.find(': ', start)
+            if at < 0:
+                break
+            found.add(unicodedata.normalize('NFC', line[:at]))
+            found.add(unicodedata.normalize('NFC', line[at + 2:].strip()))
+            start = at + 1
+    return found
 
 
 # ---------------------------------------------------------------------- listings

@@ -25,6 +25,7 @@ import spec_samples as S
 NOW = datetime(2026, 10, 25)
 LOG = open(os.devnull, 'w')
 SEVEN = shutil.which('7zz') or shutil.which('7z')
+BSDTAR = shutil.which('bsdtar') or ('/usr/bin/bsdtar' if Path('/usr/bin/bsdtar').exists() else None)
 
 
 def run(source, out, workers=2, tools=None, **kwargs):
@@ -150,6 +151,23 @@ class MemberStorageTests(Base):
         db.close()
         run(self.data, self.out)
         self.assertEqual(cache_rows(self.out, 'select count(*) from members')[0][0], 0)
+
+
+@unittest.skipUnless(BSDTAR, 'needs bsdtar')
+class BsdtarDamagedArchiveRunTests(Base):
+    def test_a_truncated_member_that_bsdtar_pads_is_neither_unique_nor_new_content(self):
+        full = io.BytesIO()
+        with zipfile.ZipFile(full, 'w') as archive:
+            archive.writestr('a.txt', S.EN.encode() * 2)
+            archive.writestr('b.bin', os.urandom(300_000))
+        (self.data / 'cut.zip').write_bytes(full.getvalue()[:150_000])
+        spec = run(self.data, self.out, tools={'bsdtar': BSDTAR})
+        contents = spec['parts']['archive_contents']
+        self.assertEqual(contents['files'], 2)
+        self.assertEqual(contents['new_files'], 1)                               # only a.txt
+        self.assertEqual(spec['totals']['unique_contents'], 2)                   # the zip file and a.txt
+        self.assertEqual(spec['totals']['hashed_files'], 2)
+        self.assertEqual(spec['methodology']['archives']['partly_readable'], 1)
 
 
 @unittest.skipUnless(SEVEN, 'needs 7zz or 7z')

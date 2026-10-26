@@ -283,6 +283,91 @@ class SevenZipTests(Base):
         self.assertTrue(all('h' not in m and m['s'] == len(b'secret ' * 40) for m in credential))
 
 
+class UnconfirmedMemberTests(Base):
+    """A tool that exits non-zero may leave a cut-off or damaged member at full size: such a member gets no hash."""
+
+    def assert_unconfirmed(self, member):
+        self.assertTrue(member['short'])
+        self.assertNotIn('h', member)
+        self.assertNotIn('lang', member)
+
+    def cut_zip(self):
+        return zip_bytes([('a.txt', S.EN.encode() * 2), ('b.bin', os.urandom(300_000))])[:150_000]
+
+    def damaged_seven(self):
+        payload = os.urandom(300_000)
+        data = bytearray(self.seven('s.7z', [('a.txt', S.EN.encode() * 2), ('b.bin', payload)], '-mx0'))
+        data[bytes(data).index(payload) + 500] ^= 0xFF
+        return bytes(data)
+
+    @unittest.skipUnless(BSDTAR, 'needs bsdtar')
+    def test_bsdtar_pads_a_truncated_zip_member_and_it_gets_no_hash(self):
+        reader = self.reader({'bsdtar': BSDTAR})
+        self.assertTrue(self.open(reader, 'zip', 'cut.zip', self.cut_zip()))
+        by_name = {m['n']: m for m in reader.members}
+        self.assertEqual(by_name['b.bin']['s'], 300_000)             # the file on disk is padded to the declared size
+        self.assert_unconfirmed(by_name['b.bin'])
+        self.assertIn('h', by_name['a.txt'])
+        self.assertNotIn('short', by_name['a.txt'])
+        self.assertEqual(by_name['a.txt']['lang']['lang'], 'en')
+        self.assertEqual(reader.partly, 1)
+
+    @unittest.skipUnless(BSDTAR and SEVEN, 'needs bsdtar and 7zz')
+    def test_bsdtar_names_a_member_with_a_bad_checksum_and_only_that_member_loses_its_hash(self):
+        reader = self.reader({'bsdtar': BSDTAR})
+        self.assertTrue(self.open(reader, '7z', 'bad.7z', self.damaged_seven()))
+        by_name = {m['n']: m for m in reader.members}
+        self.assert_unconfirmed(by_name['b.bin'])
+        self.assertIn('h', by_name['a.txt'])
+        self.assertEqual(reader.partly, 1)
+
+    @unittest.skipUnless(SEVEN, 'needs 7zz or 7z')
+    def test_a_member_7zz_reports_with_a_bad_checksum_loses_its_hash(self):
+        reader = self.reader({'7zz': SEVEN})
+        self.assertTrue(self.open(reader, '7z', 'bad.7z', self.damaged_seven()))
+        by_name = {m['n']: m for m in reader.members}
+        self.assert_unconfirmed(by_name['b.bin'])
+        self.assertIn('h', by_name['a.txt'])
+        self.assertEqual(reader.partly, 1)
+
+    def fake_bsdtar(self, listing, extraction):
+        return script(self.base / 'fake-bsdtar', f'''if [ "$1" = "-tvf" ]; then
+{listing}
+  exit 0
+fi
+out=""
+while [ $# -gt 0 ]; do case "$1" in -C) out="$2"; shift;; esac; shift; done
+{extraction}
+''')
+
+    LINE = "  printf -- '-rw-r--r--  0 0  0  10 Oct 25 16:18 a.txt\\n'"
+    BODY = 'printf 0123456789 > "$out/a.txt"\nexit 1'
+
+    def test_a_failed_extraction_that_names_nothing_keeps_the_hashes_the_listing_confirms(self):
+        reader = self.reader({'bsdtar': self.fake_bsdtar(self.LINE, self.BODY)})
+        self.assertTrue(self.open(reader, '7z', 'x.7z', b'7z\xbc\xaf\x27\x1c' + b'\x00' * 100))
+        member, = reader.members
+        self.assertIn('h', member)
+        self.assertNotIn('short', member)
+        self.assertEqual(reader.partly, 1)
+
+    def test_a_failed_extraction_that_names_nothing_leaves_unchecked_members_without_a_hash(self):
+        listing = self.LINE + "\n  printf 'unreadable line\\n'"           # the sizes of this listing cannot be trusted
+        reader = self.reader({'bsdtar': self.fake_bsdtar(listing, self.BODY)})
+        self.assertTrue(self.open(reader, '7z', 'x.7z', b'7z\xbc\xaf\x27\x1c' + b'\x00' * 100))
+        member, = reader.members
+        self.assert_unconfirmed(member)
+        self.assertEqual(reader.partly, 1)
+
+    def test_a_successful_extraction_is_never_second_guessed_by_its_messages(self):
+        body = 'printf "a.txt: a warning" >&2\nprintf 0123456789 > "$out/a.txt"\nexit 0'
+        reader = self.reader({'bsdtar': self.fake_bsdtar(self.LINE, body)})
+        self.assertTrue(self.open(reader, '7z', 'x.7z', b'7z\xbc\xaf\x27\x1c' + b'\x00' * 100))
+        member, = reader.members
+        self.assertIn('h', member)
+        self.assertEqual((reader.partly, reader.shorts), (0, 0))
+
+
 class FakeToolTests(Base):
     """Tools that misbehave on purpose: lying headers, output floods, hangs and an unlisted tool."""
 
