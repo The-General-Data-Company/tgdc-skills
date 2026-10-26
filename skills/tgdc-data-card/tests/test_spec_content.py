@@ -83,6 +83,29 @@ class TextTests(unittest.TestCase):
                 text = C.legacy_doc_text(S.ole_doc_bytes(S.EN * 2, encoding))
                 self.assertIn('contractor shall deliver', text)
 
+    def test_documents_are_read_from_a_stream_without_loading_them_as_bytes(self):
+        facts = C.content_facts('docx', io.BytesIO(S.docx_bytes(S.EN * 2, 2015)))
+        self.assertEqual((facts['lang']['lang'], facts['year']), ('en', 2015))
+        facts = C.content_facts('xlsx', io.BytesIO(S.xlsx_bytes([S.RO * 2], 2012)))
+        self.assertEqual((facts['lang']['lang'], facts['year']), ('ro', 2012))
+        facts = C.content_facts('doc', io.BytesIO(S.ole_doc_bytes(S.EN * 2, 'cp1252')))
+        self.assertEqual(facts['lang']['lang'], 'en')
+        data, _ = MailTests().build()
+        self.assertEqual(C.content_facts('eml', io.BytesIO(data))['lang']['lang'], 'ro')
+        self.assertEqual(C.content_facts('eml', data)['lang']['lang'], 'ro')
+
+    def test_a_cut_off_text_loses_only_an_incomplete_character(self):
+        text = ('ăîșț' * 5).encode('utf-8')
+        for cut in range(1, 9):
+            with self.subTest(cut=cut):
+                self.assertEqual(C.trim_partial_character(text[:cut]).decode('utf-8'), text[:cut].decode('utf-8', 'ignore'))
+        self.assertEqual(C.trim_partial_character(b'plain'), b'plain')
+        self.assertEqual(C.trim_partial_character(b''), b'')
+
+    def test_text_formats_are_the_ones_read_from_their_first_bytes_only(self):
+        self.assertEqual(C.TEXT_HEAD_BYTES, 2 * 1024 * 1024)
+        self.assertEqual(sorted(C.TEXT_HEAD_EXTENSIONS), ['csv', 'htm', 'html', 'md', 'rtf', 'tsv', 'txt', 'xhtml'])
+
     def test_romanian_cp1250_text_decodes(self):
         data = 'Lucrările şi reţelele'.encode('cp1250')
         self.assertIn('Lucr', C.decode_plain(data))

@@ -349,6 +349,19 @@ class SpecReportTests(unittest.TestCase):
         for wrong in ('1 files', '1 archives', '1 PDFs', '1 projects', '1 sheets'):
             self.assertNotRegex(specification, r'(?<![\d,])' + wrong, wrong)
 
+    def test_notes_name_orphan_volumes_and_links_inside_archives(self):
+        spec = copy.deepcopy(self.spec)
+        spec['methodology']['archives'].update({'orphan_volumes': 1, 'links_skipped': 2})
+        _, pages = self.render(spec, 'orphans.pdf')
+        flat = ' '.join(' '.join(pages).split())
+        self.assertIn('1 volume of a multi-part archive has no first part and could not be opened', flat)
+        self.assertIn('2 symbolic links inside compressed archives were not followed and not counted', flat)
+        spec['methodology']['archives'].update({'orphan_volumes': 3, 'links_skipped': 0})
+        _, pages = self.render(spec, 'orphans3.pdf')
+        flat = ' '.join(' '.join(pages).split())
+        self.assertIn('3 volumes of multi-part archives have no first part and could not be opened', flat)
+        self.assertNotIn('symbolic links inside compressed archives', flat)
+
     def test_a_page_break_never_leaves_fewer_than_four_body_rows_on_either_side(self):
         import spec_report
         from reportlab.platypus import Paragraph

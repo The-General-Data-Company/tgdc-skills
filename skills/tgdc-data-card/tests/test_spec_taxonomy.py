@@ -48,6 +48,19 @@ class TaxonomyTests(unittest.TestCase):
             with self.subTest(name=name):
                 self.assertFalse(T.is_credential_name(name))
 
+    def test_a_path_is_sensitive_when_any_component_is_hidden_or_credential_like(self):
+        sensitive = [['home', '.ssh', 'known_hosts'], ['a', 'id_ed25519'], ['service-account.json'], ['oauth_client.json'], ['token.txt'],
+                     ['tokens.json'], ['accounts.csv'], ['api_key.txt'], ['API-Key backup.txt'], ['private_key.txt'], ['My Passwords', 'list.txt'],
+                     ['ACME Credentials', 'x.txt'], ['mail', 'key.asc'], ['x.gpg'], ['x.PGP'], ['vpn', 'office.ovpn'], ['.env'], ['a', 'x.pem'],
+                     ['secrets', 'readme.txt'], ['passwort.txt']]
+        for parts in sensitive:
+            with self.subTest(parts=parts):
+                self.assertTrue(T.is_sensitive_path(parts))
+        for parts in [['docs', 'report.pdf'], ['passport scan.jpg'], ['compass', 'a.dwg'], ['.', 'a.txt'], ['', 'a.txt'], ['therapy keys.txt'],
+                      ['api documentation.pdf'], ['private notes', 'a.txt']]:
+            with self.subTest(parts=parts):
+                self.assertFalse(T.is_sensitive_path(parts))
+
     def test_extension_labels(self):
         self.assertEqual(T.extension_label('a.PDF'), 'pdf')
         self.assertEqual(T.extension_label('README'), '(no extension)')

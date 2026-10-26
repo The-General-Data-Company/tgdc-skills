@@ -142,6 +142,8 @@ def is_sensitive_path(parts):
     from profiler import excluded          # imported here: profiler imports spec_language, which imports this module
     for part in parts:
         part = str(part)
+        if part in ('', '.'):
+            continue
         if part.startswith('.') or is_credential_name(part) or excluded(PurePosixPath(part)):
             return True
     return False

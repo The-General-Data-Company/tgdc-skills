@@ -907,6 +907,12 @@ def notes(spec):
                      'not entered and its contents are not counted.')
     if method['symlinks']:
         items.append(f"{plural(method['symlinks'], 'symbolic link')} {'was' if method['symlinks'] == 1 else 'were'} not followed and not counted.")
+    orphans, links = archives.get('orphan_volumes', 0), archives.get('links_skipped', 0)
+    if orphans:
+        items.append(f"{plural(orphans, 'volume')} of {'a multi-part archive has' if orphans == 1 else 'multi-part archives have'} no first part and could not "
+                     'be opened; they are counted as files of their own size.')
+    if links:
+        items.append(f"{plural(links, 'symbolic link')} inside compressed archives {'was' if links == 1 else 'were'} not followed and not counted.")
     items.append('No file names, client names or document content are included in this specification.')
     if spec.get('languages'):
         items.append('Languages: detected per file from the document or message text and confirmed by a common-word (or script) check; a file can contain '

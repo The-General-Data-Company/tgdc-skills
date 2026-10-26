@@ -162,13 +162,13 @@ class SettingsChangeTests(unittest.TestCase):
         self.big_zip()
         original = formatspec.run_pool
 
-        def timed_out(tasks, count, settings, on_result, target=None):
+        def timed_out(tasks, count, settings, on_result, target=None, **kwargs):
             for task in tasks:
                 if task['name'] == 'big.zip':
                     on_result(task, {'status': 'timeout', 'sha': '0' * 64})
             rest = [task for task in tasks if task['name'] != 'big.zip']
             if rest:
-                original(rest, count, settings, on_result, target)
+                original(rest, count, settings, on_result, target, **kwargs)
         with mock.patch.object(formatspec, 'run_pool', timed_out):
             first = run([self.data], self.out, None, limits={'parse_seconds': 5})
         self.assertEqual(first['methodology']['time_limited_files'], 1)
@@ -182,10 +182,15 @@ class SettingsChangeTests(unittest.TestCase):
         (self.data / 'packed.rar').write_bytes(b'Rar!\x1a\x07\x00 not really a rar archive ' * 4)
         spec, seen = self.spy_run()
         self.assertEqual(spec['methodology']['archives']['not_opened'], {'rar:no extraction tool': 1})
-        spec, seen = self.spy_run(tools={'unar': '/nonexistent/unar'})
+        tools = self.base / 'bin'
+        tools.mkdir()
+        for name in ('unar', 'lsar'):                   # unar counts only with an lsar next to it; both fail on this file
+            (tools / name).write_text('#!/bin/sh\nexit 1\n')
+            (tools / name).chmod(0o755)
+        spec, seen = self.spy_run(tools={'unar': str(tools / 'unar')})
         self.assertEqual(seen, ['packed.rar'])
         self.assertEqual(spec['methodology']['archives']['not_opened'], {'rar:damaged': 1})
-        spec, seen = self.spy_run(tools={'unar': '/nonexistent/unar'})
+        spec, seen = self.spy_run(tools={'unar': str(tools / 'unar')})
         self.assertEqual(seen, [])
 
     def test_finished_rows_survive_a_change_of_settings(self):

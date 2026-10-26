@@ -154,7 +154,7 @@ class MailboxIntegrityTests(unittest.TestCase):
         write_mbox(self.box / 'all.mbox', [note(number) for number in range(10)])
         analyzed = [spec_content.analyze_message(note(number)) for number in range(3)]
 
-        def cut(tasks, count, settings, on_result, target=None):
+        def cut(tasks, count, settings, on_result, target=None, **kwargs):
             for task in tasks:
                 on_result(task, {'status': 'ok', 'sha': '1' * 64, 'mbox': {'count': 10, 'messages': analyzed, 'cut': 7, 'partial': 0}})
         with mock.patch.object(formatspec, 'run_pool', cut):
@@ -229,7 +229,7 @@ class MailboxIntegrityTests(unittest.TestCase):
         write_mbox(self.box / 'all.mbox', [note(number) for number in range(3)])
         original = formatspec.run_pool
 
-        def killed(tasks, count, settings, on_result, target=None):
+        def killed(tasks, count, settings, on_result, target=None, **kwargs):
             for task in tasks:
                 on_result(task, {'status': 'timeout', 'sha': '0' * 64})       # the worker was stopped by the pool
         with mock.patch.object(formatspec, 'run_pool', killed):
