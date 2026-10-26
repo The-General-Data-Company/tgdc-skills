@@ -94,7 +94,7 @@ The agent asks you five times: a short interview, a check of about 200 pilot fil
 Reads files and folders you select on your own machine and builds one reviewable PDF in two parts. Every statement is labeled as measured, inferred, or declared by you:
 
 1. **Data Card:** file counts and sizes, formats, duplicates, rows, pages, words, dates, and the share of English in a bounded text sample, computed locally by `scripts/datacard.py`, plus context you declare, such as your rights to share the data, the business behind it, and how records relate to cases. The agent asks only about gaps, at most three questions at a time, and you can skip any of them.
-2. **Data format specification:** a full pass over every selected file and every file inside compressed archives. It reports volume by content category and file format, mailboxes, languages, the contents of compressed archives, technical drawings (sheets, sizes, project workflow) and volume by year. It holds counts, sizes, years and the vocabulary you declare (company line, mailbox labels, project stages). It holds no file names, folder names, e-mail addresses, hashes, or text.
+2. **Data format specification:** a full pass that reads every selected file completely, computes a SHA-256 checksum of each one, and does the same for every file inside compressed archives. Archives are unpacked into a temporary folder inside your report folder, which is removed afterward; for 7z, RAR, ARJ and CAB archives the pass runs an extraction tool that is already on your machine. It reports volume by content category and file format, mailboxes, languages, the contents of compressed archives, technical drawings (sheets, sizes, project workflow) and volume by year. It holds counts, sizes, years, the extensions of known file formats and the vocabulary you declare (company line, mailbox labels, project stages; keep the labels short and generic, with no person or client names). It holds no file names, folder names, e-mail addresses, hashes, or text.
 
 **What it never does**
 
@@ -156,7 +156,7 @@ The agent works in this order:
 
 1. It asks which files or folders to examine and where to put the report, and asks you to confirm the authorization and exclusions above.
 2. It runs the profile script and reads the aggregate result.
-3. It asks about missing context. You can skip any question or ask for a draft right away. For the specification it asks for the company line, which folders are mailboxes, where your projects begin, your own project stages, and the words that mark a bill of quantities, a drawing and a schematic in your file names.
+3. It asks about missing context. You can skip any question or ask for a draft right away. For the specification it asks for the company line, which folders are mailboxes (with a short generic label for each), where your projects begin, your own project stages, and the words that mark a bill of quantities, a drawing and a schematic in your file names.
 4. It runs the full pass and tells you that it can take hours. New answers are applied by running the pass again, which reuses the private cache and takes minutes.
 5. Optional, only with your explicit consent: it writes about 60 low-resolution page images to `calibration.private/` and looks at them to correct the count of technical drawings. The agent host then processes those images. If you decline, the estimate of individual views is left out of the PDF.
 6. It renders the PDF and shows it to you.
