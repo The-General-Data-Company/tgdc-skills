@@ -72,6 +72,21 @@ class LockAndFolderTests(Base):
         run(self.data, self.out)
         self.assertEqual(sorted(p.name for p in self.out.iterdir()), ['spec-cache.private.sqlite', 'spec.json'])
 
+    def test_a_refused_second_run_leaves_the_temporary_data_of_the_running_run_alone(self):
+        (self.data / 'a.txt').write_bytes(S.EN.encode() * 2)
+        self.out.mkdir()
+        held = self.out / 'spec-tmp' / 'task1'
+        held.mkdir(parents=True)
+        (held / 'member.bin').write_bytes(b'extracted by the run that holds the lock')
+        descriptor = os.open(self.out / formatspec.LOCK_NAME, os.O_RDWR | os.O_CREAT, 0o600)
+        fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        try:
+            with self.assertRaises(formatspec.SpecConfigError):
+                run(self.data, self.out)
+            self.assertTrue((held / 'member.bin').is_file())
+        finally:
+            os.close(descriptor)
+
     def test_the_lock_is_released_when_a_run_fails(self):
         (self.data / 'a.txt').write_bytes(S.EN.encode() * 2)
         with mock.patch.object(formatspec, 'walk_roots', side_effect=RuntimeError('boom')):

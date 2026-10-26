@@ -1005,8 +1005,8 @@ def run_spec(sources, output, config=None, workers=None, limits=None, tools=None
     finally:
         if cache is not None:
             cache.close()
-        shutil.rmtree(temp_dir, ignore_errors=True)
-        if lock is not None:
+        if lock is not None:                    # a refused run must not touch the temporary data of the run that holds the lock
+            shutil.rmtree(temp_dir, ignore_errors=True)
             release_lock(descriptor, lock)
         if previous_handler is not None:
             signal.signal(signal.SIGTERM, previous_handler)
