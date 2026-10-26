@@ -28,6 +28,9 @@ MAX_VECTOR_PAGES = 2000            # A4-like pages inspected per PDF; beyond tha
 MAX_TEXT_PAGES = 40
 MAX_FRAMES = 5000
 ATTACHMENT_KEYS = ('pdf', 'img')
+TEXT_HEAD_BYTES = 2 * 1024 * 1024        # text formats are parsed from their first bytes only; hashing streams the whole file separately
+TEXT_HEAD_EXTENSIONS = frozenset('txt md csv tsv html htm xhtml rtf'.split())
+STREAM_EXTENSIONS = frozenset('docx docm xlsx xlsm pptx pptm ppsx odt ods odp doc'.split())
 
 
 def sha256_stream(stream, chunk=1024 * 1024):
@@ -317,10 +320,27 @@ def office_text(extension, source):
     return ' '.join(parts)[:TEXT_LIMIT], year
 
 
+def as_stream(data):
+    """A seekable binary stream for bytes or for a stream; bytes are wrapped without a copy."""
+    return io.BytesIO(data) if isinstance(data, (bytes, bytearray)) else data
+
+
+def trim_partial_character(head):
+    """Drop an incomplete UTF-8 sequence at the end of a text that was cut off."""
+    for back in range(1, min(4, len(head)) + 1):
+        byte = head[-back]
+        if byte < 0x80:
+            return head
+        if byte >= 0xC0:
+            needed = 2 if byte < 0xE0 else 3 if byte < 0xF0 else 4
+            return head if back >= needed else head[:-back]
+    return head
+
+
 def legacy_doc_text(data):
     """Best-effort text of a Word 97-2003 file: printable UTF-16LE and cp1252 runs of the WordDocument stream."""
     import olefile
-    ole = olefile.OleFileIO(io.BytesIO(data))
+    ole = olefile.OleFileIO(as_stream(data))
     try:
         if not ole.exists('WordDocument'):
             return ''
@@ -338,7 +358,9 @@ def legacy_doc_text(data):
 
 
 def extract_text(extension, data):
-    """Text and own-date year of a document held in memory. Raises on unreadable input."""
+    """Text and own-date year of a document held in memory (bytes) or in a seekable stream. Raises on unreadable input."""
+    if extension in TEXT_HEAD_EXTENSIONS and not isinstance(data, (bytes, bytearray)):
+        data = trim_partial_character(data.read(TEXT_HEAD_BYTES))
     if extension in ('txt', 'md', 'csv', 'tsv'):
         return decode_plain(data)[:TEXT_LIMIT], None
     if extension in ('html', 'htm', 'xhtml'):
@@ -346,7 +368,7 @@ def extract_text(extension, data):
     if extension == 'rtf':
         return strip_rtf(decode_plain(data))[:TEXT_LIMIT], None
     if extension in ('docx', 'docm', 'xlsx', 'xlsm', 'pptx', 'pptm', 'ppsx', 'odt', 'ods', 'odp'):
-        return office_text(extension, io.BytesIO(data))
+        return office_text(extension, as_stream(data))
     if extension == 'doc':
         return legacy_doc_text(data), None
     return '', None
@@ -493,19 +515,19 @@ def content_facts(extension, data, text_pages=1, deadline=None, mail_attachments
             facts['year'] = pdf['year']
         facts['lang'] = spec_language.analyze_text(text) if text and not pdf.get('scanned') else dict(NO_LANGUAGE)
     elif extension in ('tif', 'tiff'):
-        facts['img'] = analyze_tiff(io.BytesIO(data) if isinstance(data, (bytes, bytearray)) else data)
+        facts['img'] = analyze_tiff(as_stream(data))
         facts['lang'] = dict(NO_LANGUAGE)
     elif extension in IMAGE_SHEET_EXTENSIONS:
         facts['img'] = image_sheet_facts(extension)
     elif extension == 'eml':
-        if isinstance(data, (bytes, bytearray)):
-            message = analyze_message(bytes(data), attachments=mail_attachments, deadline=deadline)
-            facts['lang'] = message['lang']
-            if message.get('year'):
-                facts['year'] = message['year']
-    elif extension in TEXT_EXTRACTABLE and isinstance(data, (bytes, bytearray)):
+        message = analyze_message(data if isinstance(data, bytes) else bytes(data) if isinstance(data, bytearray) else data.read(),
+                                  attachments=mail_attachments, deadline=deadline)
+        facts['lang'] = message['lang']
+        if message.get('year'):
+            facts['year'] = message['year']
+    elif extension in TEXT_EXTRACTABLE:
         try:
-            text, year = extract_text(extension, bytes(data))
+            text, year = extract_text(extension, data)
             facts['lang'] = spec_language.analyze_text(text)
             if year:
                 facts['year'] = year
