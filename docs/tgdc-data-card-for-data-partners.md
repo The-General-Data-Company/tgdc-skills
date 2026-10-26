@@ -53,9 +53,9 @@ The agent reads every file once, including the files inside compressed archives,
 ```text
 Please create a TGDC Data Card with the full data format specification.
 
-1. Download two files from the release tgdc-data-card-v1.1.0 of
+1. Download two files from the release tgdc-data-card-v1.1.1 of
    https://github.com/The-General-Data-Company/tgdc-skills
-   namely tgdc-data-card-v1.1.0.tar.gz and SHA256SUMS.
+   namely tgdc-data-card-v1.1.1.tar.gz and SHA256SUMS.
    Verify the checksum with: shasum -a 256 -c SHA256SUMS --ignore-missing
    (on Linux: sha256sum -c SHA256SUMS --ignore-missing). Stop if it fails.
 2. Unpack the archive into this working folder.
