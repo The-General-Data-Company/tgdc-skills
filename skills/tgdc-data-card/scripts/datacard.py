@@ -5,6 +5,9 @@ import math
 import sys
 from pathlib import Path
 
+# Hosts may run this script with `python -I`, which leaves the script folder off the import path.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
 from profiler import DEFAULT_LIMITS, UnsupportedPlatform, profile
 
 

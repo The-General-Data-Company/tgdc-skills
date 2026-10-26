@@ -108,6 +108,18 @@ class SkillTests(unittest.TestCase):
         self.assertIn('Synthetic operations', contents)
         self.assertIn('Review', result.stdout)
 
+    def test_isolated_mode_runs_profile_and_spec(self):
+        # Agent hosts may start downloaded scripts with `python -I`, which drops the script folder from sys.path.
+        selected = self.base / 'isolated-input'; selected.mkdir()
+        (selected / 'note.txt').write_text('This synthetic document describes a business process for testing. ' * 12)
+        output = self.base / 'isolated-report'
+        script = SCRIPTS / 'datacard.py'
+        for command in (['profile'], ['spec']):
+            result = subprocess.run([sys.executable, '-I', str(script), *command, '--source', str(selected), '--output', str(output)],
+                                    cwd=self.base, capture_output=True, text=True, timeout=300)
+            self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue((output / 'spec.json').is_file())
+
     def test_unsupported_platform_fails_before_filesystem_work(self):
         import profiler
         with patch.object(profiler.os, 'name', 'nt'), patch.object(profiler, 'checked_path') as checked:
