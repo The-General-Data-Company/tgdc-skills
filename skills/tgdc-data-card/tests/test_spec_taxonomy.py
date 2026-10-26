@@ -57,6 +57,30 @@ class TaxonomyTests(unittest.TestCase):
         self.assertEqual(T.extension_label('x.001', multipart_part=True), '001')
         self.assertEqual(T.extension_label('x.001'), '(other / irregular extension)')
 
+    def test_only_known_formats_are_ever_written_as_extensions(self):
+        for name in ['J.Smith', 'Report ACME.acmecorp', 'john.doe@acme.corp', 'Quarterly.zebracli', 'a.abc', 'x.r01', 'archive.z01']:
+            with self.subTest(name=name):
+                self.assertEqual(T.extension_label(name), T.IRREGULAR_EXTENSION)
+        for name, label in [('a.DWG', 'dwg'), ('a.p12', 'p12'), ('a.mbox', 'mbox'), ('a.7z', '7z')]:
+            self.assertEqual(T.extension_label(name), label)
+        self.assertEqual(T.extension_label('x.r01', multipart_part=True), 'r01')
+        self.assertEqual(T.extension_label('x.z12', multipart_part=True), 'z12')
+        self.assertEqual(T.extension_label('x.Smith', multipart_part=True), T.IRREGULAR_EXTENSION)
+        self.assertEqual(T.label_of_extension('bob miller backup 2020'), T.IRREGULAR_EXTENSION)
+        self.assertEqual(T.label_of_extension(''), T.NO_EXTENSION)
+
+    def test_the_label_allowlist(self):
+        for label in ['pdf', 'dwg', '(no extension)', '(other / irregular extension)', '001', 'r01', 'z99']:
+            self.assertTrue(T.is_extension_label(label), label)
+        for label in ['smith', 'PDF', '.pdf', '', 'pdf ', '(other)', '0001', 'r1', None, 5, ['pdf']]:
+            self.assertFalse(T.is_extension_label(label), label)
+
+    def test_declared_labels_are_short_and_are_not_addresses_or_links(self):
+        for label in ['Mailbox 1 (owner, Gmail)', 'x' * 60, 'tender documents']:
+            self.assertTrue(T.is_short_label(label), label)
+        for label in ['', '   ', 'x' * 61, 'owner@example.test', 'https://example.test', 'a\nb', None, 3]:
+            self.assertFalse(T.is_short_label(label), label)
+
     def test_page_size_classes_with_three_percent_tolerance_in_either_orientation(self):
         mm = 72 / 25.4
         self.assertEqual(T.size_class(210 * mm, 297 * mm)[:2], ('A4', 'A4'))

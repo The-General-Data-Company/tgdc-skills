@@ -27,7 +27,7 @@ import spec_archives
 import spec_content
 from profiler import (checked_path, excluded, open_nofollow, output_directory, prepare_roots, require_supported_platform,
                       verify_output_directory, write_json)
-from spec_taxonomy import is_credential_name, raw_extension
+from spec_taxonomy import is_credential_name, is_short_label, raw_extension
 
 SCHEMA = 'tgdc-format-spec/1.0'
 ENGINE = 4
@@ -54,6 +54,14 @@ def _text(value, key, limit=200):
     if not isinstance(value, str) or not value.strip() or len(value) > limit or any(ord(c) < 32 for c in value):
         raise SpecConfigError(f'Invalid value for {key}.')
     return value.strip()
+
+
+def _label(value, key):
+    """A label that appears in the PDF: short, generic, neither an address nor a link."""
+    text = _text(value, key, 200)
+    if not is_short_label(text):
+        raise SpecConfigError(f'{key} must be a short generic label (at most 60 characters, no address, no link, no person or client name).')
+    return text
 
 
 def _patterns(value, key):
@@ -89,7 +97,7 @@ def validate_config(raw, roots):
         if not isinstance(item, dict) or set(item) - {'root', 'label'} or 'root' not in item:
             raise SpecConfigError('Each mailbox needs a root and may have a label.')
         index, relative = _inside(_text(item['root'], 'mailboxes.root', 4096), roots, 'A mailbox root')
-        config['mailboxes'].append({'root': index, 'prefix': relative, 'label': _text(item['label'], 'mailboxes.label') if item.get('label') else None})
+        config['mailboxes'].append({'root': index, 'prefix': relative, 'label': _label(item['label'], 'mailboxes.label') if item.get('label') else None})
     for number, mailbox in enumerate(config['mailboxes'], 1):
         mailbox['label'] = mailbox['label'] or f'Mailbox {number}'
     config['project_roots'] = []
@@ -111,14 +119,14 @@ def validate_config(raw, roots):
         for item in items:
             if not isinstance(item, dict) or set(item) - {'name', 'patterns'}:
                 raise SpecConfigError('Invalid stage item.')
-            parsed.append({'name': _text(item.get('name'), 'stages.name', 80), 'patterns': _patterns(item.get('patterns', []), 'stages.patterns')})
+            parsed.append({'name': _label(item.get('name'), 'stages.name'), 'patterns': _patterns(item.get('patterns', []), 'stages.patterns')})
         thresholds = stages.get('thresholds')
         if thresholds is not None:
             if (not isinstance(thresholds, list) or not thresholds
                     or any(isinstance(t, bool) or not isinstance(t, int) or not 1 <= t <= len(parsed) for t in thresholds)):
                 raise SpecConfigError('stages.thresholds must be integers between 1 and the number of stages.')
             thresholds = sorted(set(thresholds))
-        config['stages'] = {'title': _text(stages.get('title', 'lifecycle stages'), 'stages.title', 60), 'items': parsed, 'thresholds': thresholds}
+        config['stages'] = {'title': _label(stages.get('title', 'lifecycle stages'), 'stages.title'), 'items': parsed, 'thresholds': thresholds}
     for key in ('bill_of_quantities_patterns', 'drawing_patterns', 'schematic_patterns', 'revision_tokens'):
         config[key] = _patterns(raw.get(key, []), key)
     calibration = raw.get('calibration')

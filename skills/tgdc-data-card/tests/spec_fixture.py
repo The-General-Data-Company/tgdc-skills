@@ -18,7 +18,7 @@ import spec_taxonomy as T
 
 PRIVATE_TOKENS = ['Northfield', 'Southbank', '01 Tender documents', '02 Drawings', '03 Contract', '04 Acceptance',
                   'tender notice', 'overview rev', 'wiring schematic', 'site layout', 'pipe layout', 'parola cont', 'parola conturi', 'Parole.xlsx', 'keystore',
-                  'old note', 'oldformat', 'secretproject', 'client-acme', 'acme', 'zzq', 'Box1', 'Box2', 'ann@synthetic.test', 'bob@synthetic.test',
+                  'old note', 'oldformat', 'secretproject', 'client-acme', 'acme', 'zzq', 'zzr', 'Box1', 'Box2', 'ann@synthetic.test', 'bob@synthetic.test',
                   'owner@synthetic.test', 'co@synthetic.test', 'acct@synthetic.test', 'Box3', 'Account one', 'Water network plan', 'Antreprenorul', 'contractor shall',
                   'Auftragnehmer', 'Misc', 'Paper archive', 'run_export', 'contacts', 'split.zip']
 OWNER, COOWNER, ACCOUNT = 'owner@synthetic.test', 'co@synthetic.test', 'acct@synthetic.test'
@@ -140,8 +140,8 @@ class Fixture:
         self.put(misc + 'noext', b'no extension content', OT, year=2023, label='(no extension)')
         self.put(misc + 'secretproject.weird file name', b'irregular suffix bytes', OT, year=2023, label='(other / irregular extension)')
         self.put(misc + 'client-acme.zzq', b'one file with its own unknown suffix', OT, year=2023, label='(other / irregular extension)')
-        self.put(misc + 'first.zzr', b'two files share this suffix a', OT, year=2023)
-        self.put(misc + 'second.zzr', b'two files share this suffix b', OT, year=2023)
+        self.put(misc + 'first.zzr', b'two files share this suffix a', OT, year=2023, label='(other / irregular extension)')
+        self.put(misc + 'second.zzr', b'two files share this suffix b', OT, year=2023, label='(other / irregular extension)')
         self.put(misc + 'plan.dwg', b'AC1018' + b'\x00' * 30, T.CAD, year=2020, cad=True)
         self.put(misc + 'damaged.zip', b'PK\x03\x04 not really a zip archive ' * 4, AR, year=2022)
         self.put(misc + 'packed.rar', b'Rar!\x1a\x07\x00 not really a rar archive ' * 4, AR, year=2022)

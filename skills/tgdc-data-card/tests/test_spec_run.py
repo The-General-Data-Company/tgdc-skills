@@ -113,8 +113,9 @@ class SpecRunTests(unittest.TestCase):
         labels = {r['ext'] for r in self.spec['formats']}
         self.assertIn('(other / irregular extension)', labels)
         self.assertIn('(no extension)', labels)
-        self.assertNotIn('zzq', labels)       # a suffix held by one file only could be a name
-        self.assertIn('zzr', {c for row in self.spec['categories'] for c in row['formats']} | labels)
+        for unknown in ('zzq', 'zzr'):       # a suffix outside the known formats could be a name, whatever the number of files
+            self.assertNotIn(unknown, labels)
+            self.assertNotIn(unknown, {c for row in self.spec['categories'] for c in row['formats']})
         self.assertIn('001', labels)       # volume of a multi-part archive keeps its number
         self.assertIn('002', labels)
 

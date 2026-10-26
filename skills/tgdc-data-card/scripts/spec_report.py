@@ -5,6 +5,7 @@ vocabulary. It opens no source file and writes no number that the file does not
 hold. Sections without data are left out.
 """
 import math
+import re
 
 from reportlab.lib import colors
 from reportlab.lib.enums import TA_LEFT, TA_RIGHT
@@ -47,9 +48,75 @@ def validate(spec):
         elif value is not None and not isinstance(value, str):
             raise ValueError('Invalid specification value.')
     walk(spec)
-    for category in spec['categories']:
-        if category['name'] not in T.CATEGORIES:
+    check_vocabulary(spec)
+
+
+ARCHIVE_KINDS = frozenset('zip tar tar.gz tar.bz2 tar.xz gz bz2 xz 7z rar arj cab other'.split())
+REFUSAL = re.compile(r'([a-z0-9.]+):([a-z][a-z ]{0,39})')
+
+
+def _items(value):
+    if value is None:
+        return []
+    if not isinstance(value, list):
+        raise ValueError('Invalid specification value.')
+    return value
+
+
+def _fields(value):
+    if not isinstance(value, dict):
+        raise ValueError('Invalid specification value.')
+    return value
+
+
+def _extensions(labels):
+    """Every extension in the file is a known format or one of the sentinel labels: file-name fragments never pass."""
+    for label in _items(labels):
+        if not T.is_extension_label(label):
+            raise ValueError('Unknown file format label.')
+
+
+def _short_label(value):
+    if not T.is_short_label(value):
+        raise ValueError('Invalid label.')
+
+
+def check_vocabulary(spec):
+    """Reject text that did not come from this skill's fixed vocabulary or from a short declared label."""
+    for category in _items(spec['categories']):
+        if _fields(category).get('name') not in T.CATEGORIES:
             raise ValueError('Unknown content category.')
+        _extensions(category.get('formats'))
+    for row in _items(spec['formats']):
+        _extensions([_fields(row).get('ext')])
+        if row.get('category') not in T.CATEGORIES:
+            raise ValueError('Unknown content category.')
+    for category in _items(_fields(spec.get('archives') or {}).get('categories')):
+        if _fields(category).get('name') not in T.CATEGORIES:
+            raise ValueError('Unknown content category.')
+        _extensions(category.get('formats'))
+    parts = _fields(spec['parts'])
+    mailbox_part = _fields(parts.get('mailboxes') or {})
+    _extensions(mailbox_part.get('metadata_extensions'))
+    for item in _items(mailbox_part.get('incomplete')):
+        _short_label(_fields(item).get('label'))
+    for item in _items(_fields(parts.get('alternative_exports') or {}).get('items')):
+        _extensions(_fields(item).get('extensions'))
+    for box in _items(spec.get('mailboxes')):
+        _short_label(_fields(box).get('label'))
+        for item in _items(box.get('alternatives')):
+            _extensions(_fields(item).get('extensions'))
+        metadata = _fields(box.get('metadata') or {})
+        _extensions(metadata.get('extensions'))
+        _extensions(list(_fields(metadata.get('counts') or {})))
+    stages = _fields(_fields(_fields(spec.get('drawings') or {}).get('projects') or {}).get('stages') or {})
+    if stages:
+        for label in [stages.get('title')] + _items(stages.get('names')) + [_fields(item).get('name') for item in _items(stages.get('by_stage'))]:
+            _short_label(label)
+    for key in _fields(_fields(spec['methodology']).get('archives') or {}).get('not_opened', {}):
+        match = REFUSAL.fullmatch(key)
+        if not match or match.group(1) not in ARCHIVE_KINDS:
+            raise ValueError('Invalid archive refusal reason.')
 
 
 # ----------------------------------------------------------------------------- text helpers
@@ -87,6 +154,12 @@ def display_unit(total):
 
 def unit_of(spec):
     return display_unit(spec['totals']['bytes'])
+
+
+def dotted(labels):
+    """Extension labels as running text: '.json, .csv'; a sentinel label reads as words."""
+    words = {T.NO_EXTENSION: 'no extension', T.IRREGULAR_EXTENSION: 'other extension'}
+    return ', '.join(words.get(label) or '.' + label for label in labels)
 
 
 def plural(count, singular, many=None):
@@ -321,8 +394,7 @@ def mailbox_summary(spec):
     text = f"{unit_of(spec).short(mailboxes['bytes'])}, "
     parts = [f"{noun(messages, 'e-mail message')} ({kind})"]
     if mailboxes.get('metadata_files'):
-        extensions = ', '.join('.' + extension for extension in mailboxes['metadata_extensions'])
-        parts.append(f"{noun(mailboxes['metadata_files'], 'per-message metadata file')} ({extensions})")
+        parts.append(f"{noun(mailboxes['metadata_files'], 'per-message metadata file')} ({dotted(mailboxes['metadata_extensions'])})")
     if mailboxes.get('other_files'):
         parts.append(f"{plural(mailboxes['other_files'], 'other file')}")
     text += (f'{noun(files, "file")}: ' if len(parts) > 1 else '') + ' + '.join(parts)
@@ -562,8 +634,7 @@ EXTENSION_TEXT = {'mbox': '.mbox (single mailbox file)', 'eml': '.eml (RFC 822, 
 def mailbox_other_text(box):
     pieces = []
     if box.get('metadata'):
-        extensions = ', '.join('.' + e for e in box['metadata']['extensions'])
-        pieces.append(f"{noun(box['metadata']['files'], 'per-message metadata file')} ({extensions})")
+        pieces.append(f"{noun(box['metadata']['files'], 'per-message metadata file')} ({dotted(box['metadata']['extensions'])})")
     if box.get('sent_missing') or box.get('held_messages'):
         held = box.get('held_messages') or box['received']
         pieces.append(f"{noun(held, 'received message')} held; volume and attachment figures increase once the sent messages are added")
@@ -586,8 +657,10 @@ def mailbox_alt_rows(box, unit):
             rows.append([f"{box['label']} - extracted message bodies", '(same messages)', unit.table(item['bytes']), '', '.txt / .html message bodies',
                          f'{count}; text and HTML bodies of the same messages, also inside the .eml'])
         else:
-            extension = ', '.join('.' + e for e in item.get('extensions', ())) or 'archive'
-            rows.append([f"{box['label']} - export archive ({extension})", '(same messages)', unit.table(item['bytes']), '', f'{extension} archive of the whole export',
+            known = [e for e in item.get('extensions', ()) if e not in (T.NO_EXTENSION, T.IRREGULAR_EXTENSION)]
+            extension = dotted(item.get('extensions', ())) or 'archive'
+            rows.append([f"{box['label']} - export archive ({extension})", '(same messages)', unit.table(item['bytes']), '',
+                         f"{dotted(known) + ' ' if known else ''}archive of the whole export",
                          f'{count}; the mailbox export as delivered, same content as the unpacked folder'])
     return rows
 
@@ -804,8 +877,8 @@ def notes(spec):
             text += (f" {plural(count, 'file or message', 'files or messages')} {'carries' if count == 1 else 'carry'} a date that is clearly not reliable "
                      f"(before 1990 or after {spec['current_year']}) and {'is' if count == 1 else 'are'} shown as 'date not reliable'.")
         items.append(text)
-    items.append(f'By format: {unit.name} values are rounded to three decimals; 0.000 means less than {unit.half}. Irregular extensions '
-                 "(file-name fragments after a dot) are grouped as '(other / irregular extension)'.")
+    items.append(f'By format: {unit.name} values are rounded to three decimals; 0.000 means less than {unit.half}. Only the extensions of known file '
+                 "formats are listed; every other extension (file-name fragments after a dot) is grouped as '(other / irregular extension)'.")
     if method['unreadable_files'] or method['time_limited_files']:
         count = method['unreadable_files'] + method['time_limited_files']
         items.append(f"{plural(count, 'file')} could not be read completely (access problem, change during the run or a time limit); "

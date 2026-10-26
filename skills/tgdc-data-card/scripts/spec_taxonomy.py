@@ -84,15 +84,40 @@ def raw_extension(name):
     return suffix[1:].lower() if suffix else ''
 
 
-def extension_label(name, multipart_part=False):
-    """Format label: extension, '(no extension)' or '(other / irregular extension)'."""
-    suffix = raw_extension(name)
-    if not suffix:
+# Volume numbers of a split archive (.001, .r01, .z01) are the only labels beyond the known formats; they cannot hold a name.
+_VOLUME_LABEL = re.compile(r'\d{3}|[rz]\d{2}')
+
+
+def label_of_extension(extension, multipart_part=False):
+    """The one way an extension reaches an output: a known format, or '(no extension)' or '(other / irregular extension)'.
+
+    A file-name fragment after a dot can be a person, a client or a project (J.Smith, Report ACME.acmecorp), so only the
+    extensions of CATEGORY_OF_EXTENSION are ever written."""
+    if not extension:
         return NO_EXTENSION
-    if (len(suffix) > 8 or ' ' in suffix or (suffix.isdigit() and not multipart_part)
-            or not re.fullmatch(r'[a-z0-9_+~-]+', suffix)):
-        return IRREGULAR_EXTENSION
-    return suffix
+    if extension in CATEGORY_OF_EXTENSION or (multipart_part and _VOLUME_LABEL.fullmatch(extension)):
+        return extension
+    return IRREGULAR_EXTENSION
+
+
+def extension_label(name, multipart_part=False):
+    """Format label of a file name: see label_of_extension."""
+    return label_of_extension(raw_extension(name), multipart_part)
+
+
+def is_extension_label(value):
+    """True for a label that may appear in an output: a known format, a volume number of a split archive or one of the two sentinels."""
+    return isinstance(value, str) and (value in CATEGORY_OF_EXTENSION or value in (NO_EXTENSION, IRREGULAR_EXTENSION)
+                                       or _VOLUME_LABEL.fullmatch(value) is not None)
+
+
+LABEL_LIMIT = 60
+
+
+def is_short_label(value):
+    """A label the partner declares (mailbox, stage) is short and is neither an address nor a link. It must be generic: no person or client names."""
+    return (isinstance(value, str) and 0 < len(value.strip()) and len(value) <= LABEL_LIMIT and '@' not in value and '://' not in value
+            and not any(ord(char) < 32 for char in value))
 
 
 def is_credential_name(name):

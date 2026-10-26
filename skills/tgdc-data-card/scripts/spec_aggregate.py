@@ -11,7 +11,7 @@ from datetime import datetime, timezone
 import spec_language
 import spec_taxonomy as T
 from spec_taxonomy import (A4_LIKE, ARCHIVE_EXTENSIONS, CREDENTIALS, EXAMINED_CATEGORIES, SCRIPT_LOG_EXTENSIONS, TEXT_EXTRACTABLE,
-                           extension_label, fold, matches_any, raw_extension)
+                           extension_label, fold, label_of_extension, matches_any, raw_extension)
 
 SCHEMA = 'tgdc-format-spec/1.0'
 TOP_FORMATS = 35
@@ -497,21 +497,6 @@ class Build:
             spec['parts']['archive_contents'] = {'files': members_total[0], 'bytes': members_total[1], 'archives': archive_stats['opened'],
                                                   'new_files': members_new[0], 'new_bytes': members_new[1]}
             spec['parts']['held_without_archives'] = {'files': held_files, 'bytes': held_bytes}
-        # An extension carried by a single file and not a known format could be a personal or client name: group it as irregular.
-        label_files = Counter()
-        for (label, _), row in formats.items():
-            label_files[label] += row[0]
-        rare = {label for label, files in label_files.items() if files == 1 and label not in T.CATEGORY_OF_EXTENSION
-                and label not in (T.NO_EXTENSION, T.IRREGULAR_EXTENSION) and not label.isdigit()}
-        merged = defaultdict(lambda: [0, 0, 0])
-        for (label, category), row in formats.items():
-            target = merged[(T.IRREGULAR_EXTENSION if label in rare else label, category)]
-            for position in range(3):
-                target[position] += row[position]
-        formats = merged
-        for stat in list(categories.values()) + list(state['member_cats'].values()):
-            for label in rare:
-                stat['ext'].pop(label, None)
         spec['categories'] = []
         for name in T.CATEGORIES:
             stat = categories[name]
@@ -582,7 +567,7 @@ class Build:
                 row['period'] = [min(years), max(years)]
             kinds = {r.ext for r in business if r.mclass in ('eml', 'mbox_primary')}
             row['format'] = 'eml' if 'eml' in kinds and 'mbox' not in kinds else ('mbox' if kinds == {'mbox'} else 'eml+mbox')
-            meta = Counter(r.ext for r in business if r.mclass == 'meta')
+            meta = Counter(label_of_extension(r.ext) for r in business if r.mclass == 'meta')
             if meta:
                 row['metadata'] = {'files': sum(meta.values()), 'extensions': top_formats(meta), 'counts': dict(sorted(meta.items()))}
             other = sum(1 for r in business if r.mclass == 'other')
@@ -602,7 +587,7 @@ class Build:
                 if chosen:
                     item = {'kind': kind, 'files': len(chosen), 'bytes': sum(r.size for r in chosen)}
                     if kind in ('archive', 'mbox'):
-                        item['extensions'] = top_formats(Counter(r.ext for r in chosen))
+                        item['extensions'] = top_formats(Counter(label_of_extension(r.ext) for r in chosen))
                     alternatives.append(item)
             if alternatives:
                 row['alternatives'] = alternatives
