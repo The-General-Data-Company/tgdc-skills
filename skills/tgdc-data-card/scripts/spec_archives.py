@@ -30,6 +30,7 @@ import unicodedata
 import zipfile
 import zlib
 from collections import Counter
+from functools import lru_cache
 
 import spec_content
 from spec_taxonomy import ARCHIVE_EXTENSIONS, CATEGORY_OF_EXTENSION, is_sensitive_path, raw_extension
@@ -182,11 +183,16 @@ def unsafe_name(name):
             or '..' in normalized.split('/') or '\x00' in normalized)
 
 
+@lru_cache(maxsize=65536)
+def _sensitive_component(part):
+    return is_sensitive_path([part])
+
+
 def classify_member(name):
     """'cred', 'hidden' or None for a member path. Every component counts, and a credential name wins over a hidden folder."""
     normalized = name.replace('\\', '/')
     parts = [part for part in normalized.split('/') if part not in ('', '.')]
-    if is_sensitive_path([part for part in parts if not part.startswith('.')]):
+    if any(_sensitive_component(part) for part in parts if not part.startswith('.')):
         return 'cred'
     if normalized.startswith('__MACOSX/') or any(part.startswith('.') for part in parts):
         return 'hidden'

@@ -1,5 +1,4 @@
 """Archive safety: bounds before extraction, encrypted and truncated archives, depth, credential members, tool process groups."""
-import hashlib
 import io
 import os
 import shutil
