@@ -243,5 +243,27 @@ class MboxBudgetTests(unittest.TestCase):
         self.assertNotIn('known', result['messages'][1])
 
 
+class XmlGuardTests(unittest.TestCase):
+    ENTITY = '<?xml version="1.0" encoding="UTF-16"?><!DOCTYPE d [<!ENTITY x "boom">]><d>&x;</d>'
+
+    def test_a_doctype_is_refused_in_every_encoding(self):
+        for encoding in ('utf-8', 'utf-16', 'utf-16-le', 'utf-16-be', 'utf-32'):
+            with self.subTest(encoding=encoding):
+                raw = self.ENTITY.encode(encoding)
+                with self.assertRaises(ValueError):
+                    C._safe_xml(raw)
+        with self.assertRaises(ValueError):
+            C._safe_xml(b'<?xml version="1.0"?><!doctype d><d/>')
+        self.assertEqual(C._safe_xml('<?xml version="1.0" encoding="UTF-16"?><d>fine</d>'.encode('utf-16')).text, 'fine')
+
+    def test_an_office_file_with_a_utf_16_doctype_is_unreadable_not_parsed(self):
+        import zipfile
+        buffer = io.BytesIO()
+        with zipfile.ZipFile(buffer, 'w') as archive:
+            archive.writestr('word/document.xml', self.ENTITY.replace('<d>&x;</d>', '<w:document xmlns:w="urn:w"><w:t>&x;</w:t></w:document>').encode('utf-16'))
+        with self.assertRaises(ValueError):
+            C.extract_text('docx', buffer.getvalue())
+
+
 if __name__ == '__main__':
     unittest.main()

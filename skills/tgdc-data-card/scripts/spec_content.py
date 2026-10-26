@@ -290,8 +290,12 @@ def strip_rtf(text):
 
 
 def _safe_xml(raw):
-    if b'<!DOCTYPE' in raw or b'<!ENTITY' in raw:
-        raise ValueError('unsafe XML')
+    """Parse XML that declares no document type and no entity. Wide encodings are checked as text, in any case."""
+    views = [raw, raw.replace(b'\x00', b'')] + [raw.decode(encoding, 'ignore').encode('ascii', 'ignore') for encoding in ('utf-16', 'utf-32')]
+    for view in views:
+        upper = view.upper()
+        if b'<!DOCTYPE' in upper or b'<!ENTITY' in upper:
+            raise ValueError('unsafe XML')
     return ElementTree.fromstring(raw)
 
 
