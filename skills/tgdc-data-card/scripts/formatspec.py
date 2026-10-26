@@ -281,6 +281,26 @@ def assign_parts(entries):
 
 
 # --------------------------------------------------------------------------- cache
+FINGERPRINT_LIMITS = tuple(SETTINGS_DEFAULTS)
+
+
+def unfinished(result):
+    """True for a row that was cut short or failed, so that other limits or tools could give another result."""
+    if result.get('status', 'ok') != 'ok' or result.get('unreadable'):
+        return True
+    archive = result.get('arch')
+    if archive and (archive.get('partly') or archive.get('failed') or archive.get('timeout') or (archive.get('kind') and not archive.get('ok'))):
+        return True
+    mailbox = result.get('mbox')
+    return bool(mailbox and (mailbox.get('cut') or mailbox.get('partial')))
+
+
+def fingerprint(settings, cfg):
+    """What decides how a file is read: the limits, the names of the extraction tools and the mailbox roots (labels only decide how they are shown)."""
+    return {'limits': {key: settings[key] for key in FINGERPRINT_LIMITS}, 'tools': sorted(settings['tools']),
+            'mailboxes': sorted([mailbox['root'], mailbox['prefix']] for mailbox in cfg['mailboxes'])}
+
+
 class Cache:
     def __init__(self, directory_descriptor, path):
         flags = os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW
@@ -331,6 +351,35 @@ class Cache:
     def get_meta(self, key):
         row = self.db.execute('SELECT value FROM meta WHERE key=?', (key,)).fetchone()
         return json.loads(row[0]) if row else None
+
+    def reconcile(self, current):
+        """Remember the settings of this run; drop the finished rows that a change of settings can change. Returns the number dropped.
+
+        A change of the read-relevant limits or of the extraction tools drops the rows that were cut short (timeout, crashed, io_error,
+        partly or failed); a change of the mailbox roots drops the .mbox rows, whose known messages depend on them. The rows that
+        read completely stay."""
+        stored = self.get_meta('fingerprint')
+        self.set_meta('fingerprint', current)
+        if not stored:
+            return 0
+        drop = set()
+        if stored.get('limits') != current['limits'] or stored.get('tools') != current['tools']:
+            drop |= self.stale(unfinished)
+        if stored.get('mailboxes') != current['mailboxes']:
+            drop |= self.stale(lambda result: 'mbox' in result)
+        for identifier in drop:
+            self.db.execute('DELETE FROM files WHERE id=?', (identifier,))
+        return len(drop)
+
+    def stale(self, test):
+        """Identifiers of the rows whose result passes test. Only rows that can match are parsed."""
+        found = set()
+        query = ("SELECT id, result FROM files WHERE status != 'ok' OR instr(result, '\"arch\":') > 0 OR instr(result, '\"mbox\":') > 0 "
+                 "OR instr(result, '\"unreadable\":') > 0")
+        for identifier, result in self.db.execute(query).fetchall():
+            if test(json.loads(result)):
+                found.add(identifier)
+        return found
 
     def commit(self):
         self.db.execute('COMMIT')
@@ -687,6 +736,7 @@ def run_spec(sources, output, config=None, workers=None, limits=None, tools=None
         cache = Cache(descriptor, output / CACHE_NAME)
         cache.set_meta('roots', [str(root) for root in roots])
         cache.set_meta('config', {key: value for key, value in cfg.items()})
+        cache.reconcile(fingerprint(settings, cfg))
         known = cache.index()
         by_id = {entry.id: entry for entry in entries}
         todo, done_files, done_bytes = [], 0, 0

@@ -1,5 +1,6 @@
 """Resumability, change detection, configuration checks and input safety of the specification run."""
 import hashlib
+import io
 import json
 import os
 import shutil
@@ -8,6 +9,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+import zipfile
 from datetime import datetime
 from pathlib import Path
 from unittest import mock
@@ -112,6 +114,102 @@ class ResumeTests(unittest.TestCase):
 
     def test_sources_are_never_modified_and_nothing_is_written_inside_them(self):
         self.assertEqual(tree_state(self.fx.data), self.before)
+
+
+class SettingsChangeTests(unittest.TestCase):
+    """The resume cache keeps finished rows only while the settings that decided them are the same."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.base = Path(self.tmp.name).resolve()
+        self.data = self.base / 'data'
+        (self.data / 'Mail/Box').mkdir(parents=True)
+        (self.data / 'note.txt').write_bytes((S.EN * 2).encode())
+        self.out = self.base / 'out'
+
+    def spy_run(self, config=None, **kwargs):
+        seen = []
+        original = formatspec.run_pool
+
+        def spy(tasks, *args, **inner):
+            seen.extend(task['name'] for task in tasks)
+            return original(tasks, *args, **inner)
+        with mock.patch.object(formatspec, 'run_pool', spy):
+            spec = formatspec.run_spec([self.data], self.out, config=config, **{'workers': 2, 'tools': {}, 'report_date': NOW, 'log': LOG, **kwargs})
+        return spec, sorted(seen)
+
+    def big_zip(self):
+        buffer = io.BytesIO()
+        with zipfile.ZipFile(buffer, 'w', zipfile.ZIP_DEFLATED) as archive:
+            archive.writestr('big.txt', (S.EN * 40).encode())
+            archive.writestr('small.txt', (S.RO * 2).encode())
+        (self.data / 'big.zip').write_bytes(buffer.getvalue())
+
+    def test_a_larger_limit_reads_an_archive_that_was_cut_by_the_old_limit(self):
+        self.big_zip()
+        spec, seen = self.spy_run(limits={'max_archive_bytes': 3000})
+        self.assertEqual(spec['methodology']['archives']['partly_readable'], 1)
+        self.assertIn('big.zip', seen)
+        spec, seen = self.spy_run(limits={'max_archive_bytes': 3000})
+        self.assertEqual(seen, [])                                       # same limits: nothing is read again
+        spec, seen = self.spy_run()
+        self.assertEqual(seen, ['big.zip'])                              # the cut archive only; the finished note.txt stays
+        self.assertEqual(spec['methodology']['archives']['partly_readable'], 0)
+        self.assertEqual(spec['parts']['archive_contents']['files'], 2)
+
+    def test_a_changed_time_limit_reads_files_that_timed_out_again(self):
+        self.big_zip()
+        original = formatspec.run_pool
+
+        def timed_out(tasks, count, settings, on_result, target=None):
+            for task in tasks:
+                if task['name'] == 'big.zip':
+                    on_result(task, {'status': 'timeout', 'sha': '0' * 64})
+            rest = [task for task in tasks if task['name'] != 'big.zip']
+            if rest:
+                original(rest, count, settings, on_result, target)
+        with mock.patch.object(formatspec, 'run_pool', timed_out):
+            first = run([self.data], self.out, None, limits={'parse_seconds': 5})
+        self.assertEqual(first['methodology']['time_limited_files'], 1)
+        _, seen = self.spy_run(limits={'parse_seconds': 5})
+        self.assertEqual(seen, [])
+        spec, seen = self.spy_run(limits={'parse_seconds': 50})
+        self.assertEqual(seen, ['big.zip'])
+        self.assertEqual(spec['methodology']['time_limited_files'], 0)
+
+    def test_a_newly_available_extraction_tool_reads_archives_that_could_not_be_opened(self):
+        (self.data / 'packed.rar').write_bytes(b'Rar!\x1a\x07\x00 not really a rar archive ' * 4)
+        spec, seen = self.spy_run()
+        self.assertEqual(spec['methodology']['archives']['not_opened'], {'rar:no extraction tool': 1})
+        spec, seen = self.spy_run(tools={'unar': '/nonexistent/unar'})
+        self.assertEqual(seen, ['packed.rar'])
+        self.assertEqual(spec['methodology']['archives']['not_opened'], {'rar:damaged': 1})
+        spec, seen = self.spy_run(tools={'unar': '/nonexistent/unar'})
+        self.assertEqual(seen, [])
+
+    def test_finished_rows_survive_a_change_of_settings(self):
+        self.spy_run(limits={'max_archive_bytes': 3000})
+        spec, seen = self.spy_run(limits={'max_archive_bytes': 9000})
+        self.assertEqual(seen, [])
+        self.assertEqual(spec['totals']['files'], 1)
+
+    def test_a_change_of_the_mailbox_configuration_reads_the_mbox_files_again(self):
+        (self.data / 'Mail/Box/all.mbox').write_bytes(b'')
+        import mailbox
+        box = mailbox.mbox(str(self.data / 'Mail/Box/all.mbox'))
+        box.add(S.eml_bytes('One', 'Ann <ann@synthetic.test>', 'owner@synthetic.test', S.EN * 2, 2022))
+        box.flush()
+        box.close()
+        config = {'mailboxes': [{'root': str(self.data / 'Mail/Box'), 'label': 'Mailbox 1'}]}
+        self.spy_run(config)
+        spec, seen = self.spy_run(dict(config, mailboxes=[{'root': str(self.data / 'Mail/Box'), 'label': 'Other label'}]))
+        self.assertEqual(seen, [])                                       # a label is only shown, it decides nothing about reading
+        self.assertEqual(spec['mailboxes'][0]['label'], 'Other label')
+        spec, seen = self.spy_run({})
+        self.assertEqual(seen, ['all.mbox'])
+        spec, seen = self.spy_run(config)
+        self.assertEqual(seen, ['all.mbox'])
 
 
 class SafetyTests(unittest.TestCase):
