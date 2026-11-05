@@ -7,7 +7,7 @@ Fill this block at checkpoint 1, write it to `_private/config.json`, and show it
 ```
 SOURCE:            <absolute path, read-only>
 RUN_DIR:           <the folder you were started in>
-COUNTRIES:         <where the company and its employees are, for example DE, BR, US, IN>
+COUNTRIES:         <where the company and its employees are, for example DE, BR, IN, US with states such as US-CA, US-IL>
 LANGUAGES:         <languages on the drive; detection covers all of them>
 ACCOUNT:           <provider and plan, as stated by the operator>
 CONTENT_MODE:      metadata-only | masked-excerpts | local-model
@@ -48,7 +48,7 @@ Write everything in `report/` in American English, whatever language you use in 
 7. Quality check: sample size, seed, findings, the supported claim from B9, over-exclusion check result.
 8. Integrity: copied files verified by SHA-256; source snapshot unchanged.
 9. Incidental personal data: copied files contain incidental names (contacts, signatures, metadata authors). They are pseudonymized by The General Data Company under the data processing agreement before any use.
-10. Reminders for the responsible person (not legal advice): sign the data processing agreement before sharing; a lawful basis for passing on the incidental personal data (in the EU, Art. 6(1)(f) or a compatibility check under Art. 6(4) GDPR); privacy notices that name data licensees as recipients; whether a data protection impact assessment is needed; in Germany, whether the works council must be involved.
+10. Reminders for the responsible person (not legal advice): sign the data processing agreement before sharing; a lawful basis for passing on the incidental personal data (in the EU, Art. 6(1)(f) or a compatibility check under Art. 6(4) GDPR); privacy notices that name data licensees as recipients; whether a data protection impact assessment is needed; in Germany, whether the works council must be involved; in California, for a business subject to the CCPA, that licensing records with personal information of residents, employees and business contacts included, is a sale under the CCPA, which requires a notice at collection, an opt-out, and a risk assessment before the sale (CCPA regulations, Section 7150).
 
 **attestation_draft.md** (filled only from the manifest and QA results):
 

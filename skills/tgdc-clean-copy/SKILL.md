@@ -5,7 +5,7 @@ license: Apache-2.0
 compatibility: Local coding agent with a shell, started in a dedicated run folder outside the source drive. Needs Python 3.10 or newer with assets/requirements.txt, plus tesseract, poppler, qpdf, exiftool, 7-Zip, and readpst. macOS, Linux, or Windows through WSL2. Network is needed only for setup and must be off during the run.
 metadata:
   author: The General Data Company
-  version: "1.3.0"
+  version: "1.4.0"
   homepage: https://thegeneraldata.com
 ---
 
@@ -77,7 +77,7 @@ In every mode:
 - Script output printed to the terminal contains only counts, rule IDs, category codes, and manifest IDs. Per-file details go to files under `_private/`, which you query with aggregates (counts, group-bys), never print in full.
 - Error messages can leak paths. Catch exceptions in scripts, capture stdout and stderr of every subprocess (tesseract, qpdf, 7z, readpst) to `_private/logs/`, and print only manifest IDs and counts. Differences between lists are reported as counts.
 - Subagents, if you use any, follow the same rules.
-- Masking in `masked-excerpts` mode: replace roster names, capitalized name-like words next to salutations and titles, emails, phone numbers, IBANs, ID numbers, and dates of birth with typed placeholders before printing.
+- Masking in `masked-excerpts` mode: replace roster names, capitalized name-like words next to salutations and titles, emails, phone numbers, IBANs and other bank account numbers, ID numbers (including US Social Security numbers), and dates of birth with typed placeholders before printing.
 
 ## B11. Stop conditions
 

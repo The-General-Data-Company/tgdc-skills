@@ -31,14 +31,29 @@ ID_TERMS = [
     "documento nacional de identidad", "pasaporte", "carteira de identidade", "republica federativa do brasil",
     "carteira nacional de habilitacao", "dowod osobisty", "rzeczpospolita polska", "paszport", "prawo jazdy",
     "identiteitskaart", "paspoort", "rijbewijs", "verblijfsvergunning",
+    "learner's license", "learner permit", "learner's permit", "instruction permit", "under 21 until",
+    "not acceptable for real id", "not for federal identification", "not for federal purposes", "federal limits apply",
+    "uscis#", "resident since", "geneva conventions identification card",
+    "uniformed services identification", "identification and privilege card",
 ]
+# US driver licenses and state ID cards (AAMVA card design) print a header such as DRIVER LICENSE, DRIVER'S LICENSE,
+# OPERATOR LICENSE, or IDENTIFICATION CARD. The same words occur in policies and job flyers, so a header counts only
+# next to a card field label. Headers are matched without spaces and apostrophes, because OCR often joins the words.
+# OCR also loses headers in the card artwork, so three different field labels on a short page count as well.
+US_CARD_HEADERS = ["driverlicense", "driverslicense", "driverlicence", "drivinglicense", "operatorlicense",
+                   "identificationcard"]
+US_CARD_LABELS = ["dob", "exp", "iss", "hgt", "wgt", "dln", "eyes", "sex", "class"]
+# Cards without a photo. A short page with all parts of one entry is the card itself.
+NO_PHOTO_CARDS = [("this number has been established for",),           # Social Security card
+                  ("medicare health insurance", "medicare number")]    # Medicare card
 CASCADE = cv2.CascadeClassifier(cv2.data.haarcascades + "haarcascade_frontalface_default.xml")
 MRZ_LINE = re.compile(r"^[A-Z0-9<]{28,46}$")
 WEIGHTS = (7, 3, 1)
 
 
 def fold(text):
-    text = text.lower().replace("ä", "ae").replace("ö", "oe").replace("ü", "ue").replace("ß", "ss")
+    text = text.lower().replace("\u2019", "'")
+    text = text.replace("ä", "ae").replace("ö", "oe").replace("ü", "ue").replace("ß", "ss")
     return "".join(c for c in unicodedata.normalize("NFKD", text) if not unicodedata.combining(c))
 
 
@@ -108,23 +123,31 @@ def analyze(gray):
         text = ocr(img)
         lines = [re.sub(r"\s", "", l).replace("«", "<").upper() for l in text.splitlines()]
         mrz = [l for l in lines if MRZ_LINE.match(l) and l.count("<") >= 2]
-        terms = sum(1 for t in ID_TERMS if t in fold(text))
+        folded = fold(text)
+        chars = len(re.sub(r"\s", "", text))
+        terms = sum(1 for t in ID_TERMS if t in folded)
+        labels = sum(1 for t in US_CARD_LABELS if re.search(r"(^|[^a-z0-9])" + t + r"([^a-z0-9]|$)", folded))
+        squeezed = re.sub(r"[\s']", "", folded)
+        terms += int((labels >= 1 and any(h in squeezed for h in US_CARD_HEADERS)) or (labels >= 3 and chars < 600))
+        no_photo_card = chars < 600 and any(all(p in folded for p in card) for card in NO_PHOTO_CARDS)
         row = {"rotation": angle, "faces": n_faces, "white_share": round(white, 2),
-               "text_chars": len(re.sub(r"\s", "", text)), "mrz_lines": len(mrz),
-               "mrz_valid": int(mrz_valid(mrz)), "id_terms": terms}
-        score = row["mrz_valid"] * 4 + (row["mrz_lines"] > 0) * 2 + (row["faces"] > 0) * 2 + min(terms, 2)
+               "text_chars": chars, "mrz_lines": len(mrz),
+               "mrz_valid": int(mrz_valid(mrz)), "id_terms": terms + int(no_photo_card)}
+        score = (row["mrz_valid"] * 4 + (row["mrz_lines"] > 0) * 2 + (row["faces"] > 0) * 2 + min(terms, 2)
+                 + no_photo_card * 3)
         if best is None or score > best["_score"]:
-            best = {**row, "_score": score}
+            best = {**row, "_score": score, "_no_photo_card": no_photo_card}
         if row["mrz_valid"] and row["faces"]:
             break
     face, mrz_any, document_like = best["faces"] > 0, best["mrz_lines"] > 0, white > 0.45
-    if best["mrz_valid"] or (face and (mrz_any or best["id_terms"])):
+    if best["mrz_valid"] or (face and (mrz_any or best["id_terms"])) or best["_no_photo_card"]:
         best["hint"] = "P4"
     elif mrz_any or (face and document_like and best["text_chars"] < 400):
         best["hint"] = "review"
     else:
         best["hint"] = ""
     best.pop("_score")
+    best.pop("_no_photo_card")
     return best
 
 

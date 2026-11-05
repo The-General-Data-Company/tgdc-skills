@@ -24,11 +24,14 @@ STRONG = ["geburtsdatum", "geb.", "date of birth", "birth", "dob", "data de nasc
           "fecha de nacimiento", "date de naissance", "geboortedatum", "strasse", "street", "anschrift",
           "home address", "wohnort", "adresse", "endereco", "adres", "privat", "private", "mobil", "handy",
           "sozialversicherung", "sv-nr", "social security", "steuer-id", "tax id", "cpf", "pesel", "bsn",
-          "krankenkasse", "health insurer", "steuerklasse", "tax class", "e-mail privat", "personal email"]
+          "krankenkasse", "health insurer", "steuerklasse", "tax class", "e-mail privat", "personal email",
+          "ssn", "ss#", "itin", "hire date", "date of hire", "termination date", "date of termination",
+          "home phone", "personal phone", "filing status", "marital status"]
 PAY = ["gehalt", "lohn", "brutto", "netto", "salary", "gross", "net pay", "wage", "salario", "salaire",
-       "wynagrodzenie", "loon", "salaris", "steuerklasse", "tax class", "bonus"]
+       "wynagrodzenie", "loon", "salaris", "steuerklasse", "tax class", "bonus",
+       "wages", "pay rate", "hourly rate", "compensation", "withholding", "filing status", "fica"]
 COMPANY = ["firma", "company", "unternehmen", "kunde (firma)", "empresa", "razao social", "societe", "firma nazwa",
-           "bedrijf", "supplier", "lieferant", "ust-id", "vat"]
+           "bedrijf", "supplier", "lieferant", "ust-id", "vat", "account name"]
 NS = {"m": "http://schemas.openxmlformats.org/spreadsheetml/2006/main",
       "r": "http://schemas.openxmlformats.org/officeDocument/2006/relationships"}
 

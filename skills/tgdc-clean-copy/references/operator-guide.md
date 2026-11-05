@@ -12,7 +12,7 @@ What this step does not do: it does not anonymize the files it keeps. Business r
 
 ## A2. Before you start
 
-1. **Account.** Use a business account with a data processing agreement and no training on your data: Claude Team, Enterprise, or API; Claude via Amazon Bedrock or Google Vertex AI in an EU region; ChatGPT Business or Enterprise; the OpenAI API; or a local model (see A4). Personal plans (Claude Free, Pro, Max; ChatGPT Free, Plus, Pro) carry no data processing agreement and may allow training. On a personal plan the agent runs only in its strictest mode and only after you confirm that the model-training setting is off (Claude: "Help improve Claude"; ChatGPT: "Improve the model for everyone").
+1. **Account.** Use a business account with a data processing agreement and no training on your data: Claude Team, Enterprise, or API; Claude via Amazon Bedrock or Google Vertex AI (in an EU region for EU data); ChatGPT Business or Enterprise; the OpenAI API; or a local model (see A4). Personal plans (Claude Free, Pro, Max; ChatGPT Free, Plus, Pro) carry no data processing agreement and may allow training. On a personal plan the agent runs only in its strictest mode and only after you confirm that the model-training setting is off (Claude: "Help improve Claude"; ChatGPT: "Improve the model for everyone").
 2. **Authority.** You are authorized to run an inventory of this drive for this purpose.
 3. **Source protection.** Run on a snapshot, a read-only mount, or with a read-only user account. The agent protects the source anyway, but a second layer is cheap. On a live share, edits by colleagues during the run will stop it.
 4. **Disk space.** Free space on the run disk of at least the drive size plus 20 percent.
