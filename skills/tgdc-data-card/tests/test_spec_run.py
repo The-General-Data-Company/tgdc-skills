@@ -300,7 +300,8 @@ class SpecRunTests(unittest.TestCase):
         out = self.out
         self.assertEqual(json.loads((out / 'spec.json').read_text()), self.spec)
         cache = out / 'spec-cache.private.sqlite'
-        self.assertEqual(stat.S_IMODE(cache.stat().st_mode), 0o600)
+        if os.name != 'nt':                                   # Windows has no permission bits; the folder's access list applies
+            self.assertEqual(stat.S_IMODE(cache.stat().st_mode), 0o600)
         self.assertFalse((out / 'spec-tmp').exists())
         self.assertEqual(sorted(p.name for p in out.iterdir()), ['spec-cache.private.sqlite', 'spec.json'])
         for path in self.fx.data.rglob('*'):
@@ -335,7 +336,7 @@ class DateGuardTests(unittest.TestCase):
         self.assertEqual(formatspec.stored_ns(5), 5)
         import sqlite3
         with tempfile.TemporaryDirectory() as folder:
-            descriptor = os.open(folder, os.O_RDONLY)
+            descriptor = formatspec.output_directory(Path(folder).resolve())
             try:
                 cache = formatspec.Cache(descriptor, Path(folder) / 'c.sqlite')
                 entry = types.SimpleNamespace(id=b'0:a', root=0, rel='a', size=3, mtime_ns=10 ** 21)

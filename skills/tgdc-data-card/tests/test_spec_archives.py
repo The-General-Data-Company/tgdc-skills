@@ -3,6 +3,7 @@ import bz2
 import gzip
 import hashlib
 import io
+import os
 import shutil
 import subprocess
 import sys
@@ -139,6 +140,10 @@ class ArchiveTests(unittest.TestCase):
         self.assertFalse(A.unsafe_name('a/b..c/x'))
 
 
+ODD = 'Lucrări #1.txt' if os.name == 'nt' else 'Lucrări*?.txt'      # Windows forbids * and ? in file names
+BSDTAR = shutil.which('bsdtar') or ('/usr/bin/bsdtar' if Path('/usr/bin/bsdtar').exists() else None) or A.probe_tools().get('bsdtar')
+
+
 @unittest.skipUnless(shutil.which('7zz') or shutil.which('7z'), 'needs 7zz or 7z')
 class ExternalToolTests(unittest.TestCase):
     def setUp(self):
@@ -150,7 +155,7 @@ class ExternalToolTests(unittest.TestCase):
         source = self.base / 'src'
         (source / 'sub').mkdir(parents=True)
         (source / 'a b.txt').write_bytes(S.EN.encode() * 2)
-        (source / 'sub' / 'Lucrări*?.txt').write_bytes(S.RO.encode() * 2)
+        (source / 'sub' / ODD).write_bytes(S.RO.encode() * 2)
         (source / 'password list.txt').write_bytes(b'top secret')
         self.report = S.pdf_bytes([('text', S.A4P, 1)])
         (source / 'report.pdf').write_bytes(self.report)
@@ -166,12 +171,12 @@ class ExternalToolTests(unittest.TestCase):
         reader, opened = self.read({'7zz' if shutil.which('7zz') else '7z': self.tool})
         self.assertTrue(opened)
         by_name = {unicodedata.normalize('NFC', m['n']): m for m in reader.members}
-        self.assertEqual(sorted(by_name), ['a b.txt', 'password list.txt', 'report.pdf', 'sub/Lucrări*?.txt'])
+        self.assertEqual(sorted(by_name), ['a b.txt', 'password list.txt', 'report.pdf', 'sub/' + ODD])
         self.assertTrue(by_name['password list.txt']['cred'])
         self.assertEqual(by_name['password list.txt']['s'], len(b'top secret'))       # listed by name and size; never extracted or hashed
         self.assertNotIn('h', by_name['password list.txt'])
         self.assertEqual(by_name['report.pdf']['h'], sha(self.report))
-        self.assertEqual(by_name['sub/Lucrări*?.txt']['lang']['lang'], 'ro')
+        self.assertEqual(by_name['sub/' + ODD]['lang']['lang'], 'ro')
         self.assertEqual((reader.lost, reader.partly), (0, 0))
         self.assertEqual(list((self.base / 'work').iterdir()), [])     # private temporary folders are removed
 
@@ -188,12 +193,12 @@ class ExternalToolTests(unittest.TestCase):
         self.assertEqual(dict(reader.failed), {'7z:not enough free disk space': 1})
         self.assertEqual(list((self.base / 'work').iterdir()), [])
 
-    @unittest.skipUnless(shutil.which('bsdtar') or Path('/usr/bin/bsdtar').exists(), 'needs bsdtar')
+    @unittest.skipUnless(BSDTAR, 'needs bsdtar')
     def test_bsdtar_reads_7z_when_it_is_the_only_tool(self):
-        reader, opened = self.read({'bsdtar': shutil.which('bsdtar') or '/usr/bin/bsdtar'})
+        reader, opened = self.read({'bsdtar': BSDTAR})
         self.assertTrue(opened)
         names = sorted(unicodedata.normalize('NFC', m['n']) for m in reader.members if not m.get('cred'))
-        self.assertEqual(names, ['a b.txt', 'report.pdf', 'sub/Lucrări*?.txt'])
+        self.assertEqual(names, ['a b.txt', 'report.pdf', 'sub/' + ODD])
         self.assertTrue(any(m.get('cred') for m in reader.members))
 
 

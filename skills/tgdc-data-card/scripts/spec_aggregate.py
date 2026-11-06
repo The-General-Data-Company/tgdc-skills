@@ -6,7 +6,7 @@ partner declared. File names, folder names, hashes and text stay in the cache.
 import random
 import re
 from collections import Counter, defaultdict
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import spec_language
 import spec_taxonomy as T
@@ -57,9 +57,13 @@ class Loose:
 MAX_TIMESTAMP = 253402300799        # 9999-12-31 23:59:59 UTC, the last second a calendar date can hold
 
 
+EPOCH = datetime(1970, 1, 1, tzinfo=timezone.utc)
+
+
 def year_of_ns(nanoseconds):
-    """Year of a file date. A date before 1970 or after year 9999 is clamped to 1970 or 9999; both count as 'date not reliable'."""
-    return datetime.fromtimestamp(min(max(nanoseconds / 1e9, 0), MAX_TIMESTAMP), timezone.utc).year
+    """Year of a file date. A date before 1970 or after year 9999 is clamped to 1970 or 9999; both count as 'date not reliable'.
+    Computed from the epoch, because Windows refuses fromtimestamp for dates after the year 3000."""
+    return (EPOCH + timedelta(seconds=min(max(nanoseconds / 1e9, 0), MAX_TIMESTAMP))).year
 
 
 def revision_stem(name, extra=()):

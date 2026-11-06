@@ -14,6 +14,8 @@ from pypdf import PdfReader
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'scripts'))
+sys.path.insert(0, str(ROOT / 'tests'))
+import platform_support as P
 from report import render
 from profiler import profile
 
@@ -201,27 +203,35 @@ class ReportTests(unittest.TestCase):
         p, a = self.folder / 'p.json', self.folder / 'a.json'
         p.write_text(json.dumps(self.profile)); a.write_text('{}')
         import report
-        original_open = report.os.open
-        swapped, rejected = False, False
+        original_open = report.portable.open_at
+        swapped, refused, rejected = False, False, False
 
-        def swap_before_temp_open(path, *args, **kwargs):
-            nonlocal swapped
-            if Path(path).name.startswith('.tgdc-card-') and not swapped:
-                output.rename(self.folder / 'original-output')
-                output.symlink_to(source, target_is_directory=True)
+        def swap_before_temp_open(directory, name, *args, **kwargs):
+            nonlocal swapped, refused
+            if name.startswith('.tgdc-card-') and not swapped:
                 swapped = True
-            return original_open(path, *args, **kwargs)
-
-        with patch('report.os.open', side_effect=swap_before_temp_open) as intercepted:
-            # The wrapper delegates to the actual supported descriptor-capable open.
-            with patch('report.os.supports_dir_fd', report.os.supports_dir_fd | {intercepted}):
                 try:
-                    render(p, a, target)
-                except (ValueError, OSError):
-                    rejected = True
+                    output.rename(self.folder / 'original-output')
+                except PermissionError:             # Windows: a folder held open cannot be renamed, so it cannot be swapped
+                    refused = True
+                else:
+                    output.symlink_to(source, target_is_directory=True)
+            return original_open(directory, name, *args, **kwargs)
+
+        with patch('report.portable.open_at', side_effect=swap_before_temp_open):
+            try:
+                render(p, a, target)
+            except (ValueError, OSError):
+                rejected = True
         self.assertTrue(swapped)
         self.assertEqual(hashlib.sha256(selected.read_bytes()).hexdigest(), before)
         self.assertEqual(sorted(path.name for path in source.iterdir()), ['original.pdf'])
+        if P.WINDOWS:
+            self.assertTrue(refused)
+            self.assertFalse(rejected)
+            self.assertEqual(sorted(path.name for path in output.iterdir()), ['original.pdf'])
+            self.assertTrue(target.read_bytes().startswith(b'%PDF'))
+            return
         self.assertEqual((self.folder / 'original-output/original.pdf').read_bytes(), b'PRIOR OUTPUT')
         self.assertEqual(sorted(path.name for path in (self.folder / 'original-output').iterdir()), ['original.pdf'])
         self.assertTrue(rejected)

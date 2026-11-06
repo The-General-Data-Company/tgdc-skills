@@ -25,6 +25,9 @@ def non_negative(kind):
 
 
 def main(argv=None):
+    for stream in (sys.stdout, sys.stderr):      # a Windows console or pipe may not encode every character of a path
+        if hasattr(stream, 'reconfigure'):
+            stream.reconfigure(errors='backslashreplace')
     parser = argparse.ArgumentParser(description='Profile explicitly selected local files without uploading data.')
     commands = parser.add_subparsers(dest='command', required=True)
     command = commands.add_parser('profile', help='Write aggregate profile and local-only private manifest.')
@@ -61,6 +64,8 @@ def main(argv=None):
         except (ValueError, OSError) as error:
             if error.__class__.__name__ == 'UnsupportedReportText':
                 print('Rendering failed: unsupported report characters. Provide an English or Latin-script summary; the previous output is preserved.', file=sys.stderr)
+            elif error.__class__.__name__ == 'OutputInUse':
+                print('Rendering failed: the previous PDF is open in another program. Close it and run again; the previous output is preserved.', file=sys.stderr)
             else:
                 print('Rendering failed: check schema 1.0, plain-string answers, counts, the specification file and a separate output.', file=sys.stderr)
             return 2
@@ -130,6 +135,9 @@ def run_sample_command(arguments):
         written = sample_pages(arguments.spec_dir, arguments.n)
     except ImportError:
         print('The page sample requires the pinned Python dependencies in scripts/requirements.txt.', file=sys.stderr)
+        return 2
+    except PermissionError:
+        print('Page sample failed: the folder calibration.private could not be replaced. Close any program that shows its images and run again.', file=sys.stderr)
         return 2
     except (ValueError, OSError):
         print('Page sample failed: run the specification step first and keep the selected files in place.', file=sys.stderr)

@@ -13,6 +13,7 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parent / 'scripts'))
 sys.path.insert(0, str(HERE))
 import formatspec
+import platform_support as P
 import spec_content
 import spec_pool_targets
 import spec_samples as S
@@ -27,7 +28,7 @@ class PoolTests(unittest.TestCase):
             path = Path(folder) / name
             path.write_bytes(b'0123456789')
             info = path.stat()
-            tasks.append({'id': name.encode(), 'name': name, 'path': str(path), 'identity': (info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns)})
+            tasks.append({'id': name.encode(), 'name': name, 'path': str(path), 'identity': formatspec.portable.identity(info)})
         return tasks
 
     def test_hung_and_crashed_workers_are_replaced_and_the_rest_finishes(self):
@@ -48,8 +49,6 @@ class PoolTests(unittest.TestCase):
 
 
     def test_a_worker_that_dies_at_start_is_replaced_and_the_file_is_retried_once(self):
-        if sys.platform != 'darwin':
-            self.skipTest('the descriptor hand-over is acknowledged only on macOS, where a dead worker raises RuntimeError')
         with tempfile.TemporaryDirectory() as folder:
             folder = Path(folder).resolve()
             results = {}
@@ -59,8 +58,6 @@ class PoolTests(unittest.TestCase):
         self.assertEqual({name: result['status'] for name, result in results.items()}, {'first_file': 'ok', 'second_file': 'ok'})
 
     def test_a_worker_that_always_dies_at_start_marks_the_file_instead_of_stopping_the_run(self):
-        if sys.platform != 'darwin':
-            self.skipTest('the descriptor hand-over is acknowledged only on macOS, where a dead worker raises RuntimeError')
         with tempfile.TemporaryDirectory() as folder:
             folder = Path(folder).resolve()
             results = {}
@@ -123,7 +120,7 @@ class ReadTests(unittest.TestCase):
         path = self.base / name
         path.write_bytes(data)
         info = path.stat()
-        return {'id': name.encode(), 'name': name, 'path': str(path), 'identity': (info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns)}
+        return {'id': name.encode(), 'name': name, 'path': str(path), 'identity': formatspec.portable.identity(info)}
 
     def process(self, job, identity_check=True):
         descriptor, problem = formatspec.open_verified(job['path'], job['identity'] if identity_check else None)
@@ -256,10 +253,13 @@ class ReadTests(unittest.TestCase):
         (root / 'Passwords' / 'x.txt').write_text('x')
         (root / 'keys.p12').write_text('k')
         (root / 'outside').symlink_to(self.base, target_is_directory=True)
-        os.mkfifo(root / 'pipe')
+        special = 0
+        if not P.WINDOWS:                                  # Windows file systems hold no named pipes
+            os.mkfifo(root / 'pipe')
+            special = 1
         entries, stats = formatspec.walk_roots([root])
         self.assertEqual([(e.rel, e.credential) for e in entries], [('a.txt', False), ('keys.p12', True)])
-        self.assertEqual((stats['hidden_entries'], stats['credential_folders'], stats['symlinks'], stats['special_files']), (1, 1, 1, 1))
+        self.assertEqual((stats['hidden_entries'], stats['credential_folders'], stats['symlinks'], stats['special_files']), (1, 1, 1, special))
 
     def test_multi_part_archives_are_grouped_once_with_the_first_part_leading(self):
         root = self.base / 'parts'

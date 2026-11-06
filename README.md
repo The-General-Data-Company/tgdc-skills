@@ -98,7 +98,7 @@ Reads files and folders you select on your own machine and builds one reviewable
 
 **What it never does**
 
-- It never changes, moves, or deletes your files, and it never follows symbolic links.
+- It never changes, moves, or deletes your files, and it never follows symbolic links or Windows junctions.
 - It never emails, uploads, or submits anything by itself. You decide whether to share the PDF.
 - Its scripts make no network requests and use no telemetry. Only the Python package setup downloads software, from PyPI, never your data.
 - It never reads a file before you confirm that you are authorized to use the selection and that it excludes HIPAA protected health information and payment-card data.
@@ -116,11 +116,12 @@ Reads files and folders you select on your own machine and builds one reviewable
 
 ### Before you start
 
-- Python 3.11 or newer on macOS or Linux. Tested on macOS (Apple silicon) with Python 3.12, 3.13 and 3.14; Linux is not tested. Windows is not supported.
+- Python 3.11 or newer on Windows, macOS or Linux. Tested on all three with Python 3.11, 3.12, 3.13, 3.14 and 3.15.
 - A coding agent that can run commands and read the files you select.
 - The full pass reads every file and can take hours on a large archive. It shows progress every 1,000 files and continues where it stopped if you run it again.
-- A folder from Google Drive for desktop must be set to "Available offline", or copied to a local folder, before the run. Files that exist only online cannot be read.
-- Optional: one of `7zz`, `7z`, `bsdtar` or `unar` on your PATH. Without one, 7z, RAR, ARJ and CAB archives are counted but not opened, and the notes of the PDF say so.
+- Set a folder from Google Drive for desktop to "Available offline", and OneDrive or Dropbox folders to "Always keep on this device", or copy them to a local folder before the run. Otherwise each file that exists only online is downloaded when it is read, or cannot be read at all.
+- Choose a report folder on a local disk outside OneDrive, Dropbox, Google Drive and iCloud. The private cache and the temporary unpacked archive contents are written there, and a sync client would upload them. On Windows, Desktop and Documents are often inside OneDrive.
+- Optional: one of `7zz`, `7z`, `bsdtar` or `unar` on your PATH. On Windows, 7-Zip from [7-zip.org](https://www.7-zip.org) is found in its install folder, and the `tar` built into Windows serves as bsdtar (older Windows 10 versions of it open fewer formats). Without one, 7z, RAR, ARJ and CAB archives are counted but not opened, and the notes of the PDF say so.
 - Your agent's AI provider processes what the agent sees: your request, the folders you name, the aggregate results, and your answers. Check its account and permission settings first, and select only files you are authorized to use. The agent is instructed to read only `profile.json` and `spec.json`, but the skill cannot technically stop an agent with file access from reading more.
 - Review the PDF, `profile.json` and `spec.json` before you share anything. Your answers can contain confidential details, and they appear in the PDF.
 
@@ -128,14 +129,22 @@ Reads files and folders you select on your own machine and builds one reviewable
 
 **1. The skill** (download a pinned release and verify its checksum)
 ```sh
-V=1.1.1
+V=1.2.0
 R=https://github.com/The-General-Data-Company/tgdc-skills/releases/download/tgdc-data-card-v$V
 curl -fsSLO $R/tgdc-data-card-v$V.tar.gz
 curl -fsSLO $R/SHA256SUMS
-shasum -a 256 -c SHA256SUMS --ignore-missing
-mkdir -p <FOLDER> && tar -xzf tgdc-data-card-v$V.tar.gz -C <FOLDER>
+shasum -a 256 -c SHA256SUMS --ignore-missing && mkdir -p <FOLDER> && tar -xzf tgdc-data-card-v$V.tar.gz -C <FOLDER>
 ```
-On Linux, use `sha256sum` instead of `shasum -a 256`.
+On Linux, use `sha256sum` instead of `shasum -a 256`. On Windows, in PowerShell:
+```powershell
+$V = "1.2.0"
+$R = "https://github.com/The-General-Data-Company/tgdc-skills/releases/download/tgdc-data-card-v$V"
+curl.exe -fsSLO "$R/tgdc-data-card-v$V.tar.gz"
+curl.exe -fsSLO "$R/SHA256SUMS"
+$expected = (@(Get-Content SHA256SUMS) -match "tgdc-data-card-v$V.tar.gz")[0].Split(" ")[0]
+if ((Get-FileHash "tgdc-data-card-v$V.tar.gz" -Algorithm SHA256).Hash -ne $expected) { throw "Checksum mismatch" } else {
+  New-Item -ItemType Directory -Force <FOLDER> | Out-Null; tar -xzf "tgdc-data-card-v$V.tar.gz" -C <FOLDER> }
+```
 
 | Agent | `<FOLDER>` | Start the skill |
 |---|---|---|

@@ -1,10 +1,8 @@
 """Whole-run behavior of the archive and worker safety measures: lock, stale folders, member storage, truncated and orphan archives."""
-import fcntl
 import io
 import json
 import os
 import shutil
-import signal
 import sqlite3
 import stat
 import subprocess
@@ -21,12 +19,13 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parent / 'scripts'))
 sys.path.insert(0, str(HERE))
 import formatspec
+import platform_support as P
 import spec_samples as S
 
 NOW = datetime(2026, 10, 25)
 LOG = open(os.devnull, 'w')
 SEVEN = shutil.which('7zz') or shutil.which('7z')
-BSDTAR = shutil.which('bsdtar') or ('/usr/bin/bsdtar' if Path('/usr/bin/bsdtar').exists() else None)
+BSDTAR = shutil.which('bsdtar') or ('/usr/bin/bsdtar' if Path('/usr/bin/bsdtar').exists() else None) or formatspec.spec_archives.probe_tools().get('bsdtar')
 
 
 def run(source, out, workers=2, tools=None, **kwargs):
@@ -63,7 +62,7 @@ class LockAndFolderTests(Base):
         (self.data / 'a.txt').write_bytes(S.EN.encode() * 2)
         self.out.mkdir()
         descriptor = os.open(self.out / formatspec.LOCK_NAME, os.O_RDWR | os.O_CREAT, 0o600)
-        fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        formatspec.portable.lock(descriptor)
         try:
             with self.assertRaises(formatspec.SpecConfigError) as caught:
                 run(self.data, self.out)
@@ -81,7 +80,7 @@ class LockAndFolderTests(Base):
         held.mkdir(parents=True)
         (held / 'member.bin').write_bytes(b'extracted by the run that holds the lock')
         descriptor = os.open(self.out / formatspec.LOCK_NAME, os.O_RDWR | os.O_CREAT, 0o600)
-        fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        formatspec.portable.lock(descriptor)
         try:
             with self.assertRaises(formatspec.SpecConfigError):
                 run(self.data, self.out)
@@ -202,18 +201,7 @@ class DamagedArchiveRunTests(Base):
 
     def test_a_tool_stopped_by_the_parent_leaves_no_process_or_folder_behind(self):
         pids = self.base / 'pids.txt'
-        tool = self.base / 'fake7zz'
-        tool.write_text(f'''#!/bin/sh
-if [ "$1" = "l" ]; then
-  printf 'Path = a.txt\\nSize = 10\\nFolder = -\\nAttributes = A\\nEncrypted = -\\n\\n'
-  exit 0
-fi
-sleep 120 &
-echo $! >> "{pids}"
-echo $$ >> "{pids}"
-wait
-''')
-        os.chmod(tool, 0o755)
+        tool = P.hanging_seven(self.base / 'fake7zz', pids)
         (self.data / 'x.7z').write_bytes(b"7z\xbc\xaf'\x1c" + b'\x00' * 200)
         # The parent gives up on the worker (grace below zero) before the reader's own deadline would stop the tool.
         started = time.monotonic()
@@ -222,12 +210,13 @@ wait
         self.assertEqual(spec['methodology']['time_limited_files'], 1)
         started_pids = [int(p) for p in pids.read_text().split()]
         end = time.monotonic() + 5
-        while time.monotonic() < end and any(_alive(pid) for pid in started_pids):
+        while time.monotonic() < end and any(P.alive(pid) for pid in started_pids):
             time.sleep(0.05)
-        self.assertEqual([pid for pid in started_pids if _alive(pid)], [])
+        self.assertEqual([pid for pid in started_pids if P.alive(pid)], [])
         self.assertFalse((self.out / 'spec-tmp').exists())
 
 
+    @unittest.skipIf(P.WINDOWS, 'Windows has no SIGTERM: a stopped run ends hard there, which OrphanedWorkerTests covers')
     def test_a_terminated_run_stops_workers_and_tools_and_removes_its_folder(self):
         pids = self.base / 'pids.txt'
         tool = self.base / 'fake7zz'
@@ -245,13 +234,14 @@ wait
         (self.data / 'x.7z').write_bytes(b"7z\xbc\xaf'\x1c" + b'\x00' * 200)
         driver = self.base / 'driver.py'
         driver.write_text(f'''
+import os
 import sys
 sys.path.insert(0, {str(HERE.parent / 'scripts')!r})
 import formatspec
 
 if __name__ == '__main__':
     try:
-        formatspec.run_spec([{str(self.data)!r}], {str(self.out)!r}, workers=1, tools={{'7zz': {str(tool)!r}}}, log=open('/dev/null', 'w'))
+        formatspec.run_spec([{str(self.data)!r}], {str(self.out)!r}, workers=1, tools={{'7zz': {str(tool)!r}}}, log=open(os.devnull, 'w'))
     except formatspec.SpecInterrupted:
         sys.exit(3)
 ''')
@@ -268,9 +258,9 @@ if __name__ == '__main__':
             if process.poll() is None:
                 process.kill()
         end = time.monotonic() + 10
-        while time.monotonic() < end and any(_alive(pid) for pid in started):
+        while time.monotonic() < end and any(P.alive(pid) for pid in started):
             time.sleep(0.05)
-        self.assertEqual([pid for pid in started if _alive(pid)], [])
+        self.assertEqual([pid for pid in started if P.alive(pid)], [])
         self.assertFalse((self.out / 'spec-tmp').exists())
         self.assertFalse((self.out / formatspec.LOCK_NAME).exists())
 
@@ -278,38 +268,24 @@ if __name__ == '__main__':
 class OrphanedWorkerTests(Base):
     def test_a_worker_whose_parent_was_killed_stops_its_tool_and_exits(self):
         pids = self.base / 'pids.txt'
-        tool = self.base / 'fake7zz'
-        tool.write_text(f'''#!/bin/sh
-if [ "$1" = "l" ]; then
-  printf 'Path = a.txt\\nSize = 10\\nFolder = -\\nAttributes = A\\nEncrypted = -\\n\\n'
-  exit 0
-fi
-sleep 120 &
-echo $! >> "{pids}"
-echo $$ >> "{pids}"
-echo $PPID >> "{pids}"
-wait
-''')
-        os.chmod(tool, 0o755)
+        tool = P.hanging_seven(self.base / 'fake7zz', pids, record_parent=True)
         (self.data / 'x.7z').write_bytes(b"7z\xbc\xaf'\x1c" + b'\x00' * 200)
         driver = self.base / 'driver.py'
         driver.write_text(f'''
+import os
 import sys
 sys.path.insert(0, {str(HERE.parent / 'scripts')!r})
 import formatspec
 
 if __name__ == '__main__':
-    formatspec.run_spec([{str(self.data)!r}], {str(self.out)!r}, workers=1, tools={{'7zz': {str(tool)!r}}}, log=open('/dev/null', 'w'))
+    formatspec.run_spec([{str(self.data)!r}], {str(self.out)!r}, workers=1, tools={{'7zz': {str(tool)!r}}}, log=open(os.devnull, 'w'))
 ''')
         process = subprocess.Popen([sys.executable, str(driver)], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         started = []
 
         def clean_up():
             for pid in started:
-                try:
-                    os.kill(pid, signal.SIGKILL)
-                except OSError:
-                    pass
+                P.kill(pid)
             if process.poll() is None:
                 process.kill()
         self.addCleanup(clean_up)
@@ -321,9 +297,9 @@ if __name__ == '__main__':
         process.kill()
         process.wait(timeout=60)
         end = time.monotonic() + 15
-        while time.monotonic() < end and any(_alive(pid) for pid in started):
+        while time.monotonic() < end and any(P.alive(pid) for pid in started):
             time.sleep(0.05)
-        self.assertEqual([pid for pid in started if _alive(pid)], [], 'the tool, its child and the worker must all be gone')
+        self.assertEqual([pid for pid in started if P.alive(pid)], [], 'the tool, its child and the worker must all be gone')
 
 
 class VolumeAndLinkTests(Base):
@@ -343,14 +319,6 @@ class VolumeAndLinkTests(Base):
         self.assertEqual((archives['orphan_volumes'], archives['links_skipped']), (3, 1))
         self.assertEqual(archives['not_opened'], {})
         self.assertEqual(spec['parts']['archive_contents']['files'], 1)
-
-
-def _alive(pid):
-    try:
-        os.kill(pid, 0)
-    except ProcessLookupError:
-        return False
-    return True
 
 
 if __name__ == '__main__':

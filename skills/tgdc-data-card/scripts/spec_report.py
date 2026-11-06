@@ -903,7 +903,7 @@ def notes(spec):
             pieces.append(f"{plural(count, 'mailbox file')} could not be read (time limit or access problem) and {'is' if count == 1 else 'are'} not counted")
         items.append(f"{box['label']}: " + '; '.join(pieces) + '. Run the pass again with a larger time limit to complete the figures.')
     if method['hidden_entries']:
-        items.append(f"{plural(method['hidden_entries'], 'hidden file or folder', 'hidden files and folders')} (names that start with a dot) "
+        items.append(f"{plural(method['hidden_entries'], 'hidden file or folder', 'hidden files and folders')} (names that start with a dot; on Windows also entries marked hidden and system files) "
                      f"{'was' if method['hidden_entries'] == 1 else 'were'} not entered and not counted.")
     if method['credential_folders']:
         items.append(f"{plural(method['credential_folders'], 'folder')} with a credential-like name {'was' if method['credential_folders'] == 1 else 'were'} "

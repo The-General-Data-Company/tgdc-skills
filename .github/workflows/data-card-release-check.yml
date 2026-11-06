@@ -1,0 +1,62 @@
+name: data-card-release-check
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Release version to check, for example 1.2.0
+        required: true
+permissions:
+  contents: read
+jobs:
+  install:
+    name: ${{ matrix.os }} / Python ${{ matrix.python }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest, macos-latest]
+        python: ['3.11', '3.15']
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Download and verify as the README says (macOS, Linux)
+        if: runner.os != 'Windows'
+        shell: bash
+        env:
+          V: ${{ inputs.version }}
+        run: |
+          R=https://github.com/The-General-Data-Company/tgdc-skills/releases/download/tgdc-data-card-v$V
+          curl -fsSLO $R/tgdc-data-card-v$V.tar.gz
+          curl -fsSLO $R/SHA256SUMS
+          if command -v shasum >/dev/null; then shasum -a 256 -c SHA256SUMS --ignore-missing; else sha256sum -c SHA256SUMS --ignore-missing; fi && mkdir -p skills && tar -xzf tgdc-data-card-v$V.tar.gz -C skills
+      - name: Download and verify as the README says (Windows)
+        if: runner.os == 'Windows'
+        shell: powershell
+        env:
+          V: ${{ inputs.version }}
+        run: |
+          $V = $env:V
+          $R = "https://github.com/The-General-Data-Company/tgdc-skills/releases/download/tgdc-data-card-v$V"
+          curl.exe -fsSLO "$R/tgdc-data-card-v$V.tar.gz"
+          curl.exe -fsSLO "$R/SHA256SUMS"
+          $expected = (@(Get-Content SHA256SUMS) -match "tgdc-data-card-v$V.tar.gz")[0].Split(" ")[0]
+          if ((Get-FileHash "tgdc-data-card-v$V.tar.gz" -Algorithm SHA256).Hash -ne $expected) { throw "Checksum mismatch" } else {
+            New-Item -ItemType Directory -Force skills | Out-Null; tar -xzf "tgdc-data-card-v$V.tar.gz" -C skills }
+      - name: The released skill names its version
+        shell: bash
+        run: grep -q "version: \"${{ inputs.version }}\"" skills/tgdc-data-card/SKILL.md
+      - name: Extraction tools
+        shell: bash
+        run: |
+          case "$RUNNER_OS" in
+            Linux) sudo apt-get update -q && (sudo apt-get install -y -q 7zip || sudo apt-get install -y -q p7zip-full) ;;
+            macOS) HOMEBREW_NO_AUTO_UPDATE=1 brew install sevenzip ;;
+            Windows) echo "C:\\Program Files\\7-Zip" >> "$GITHUB_PATH" ;;
+          esac
+      - name: Partner flow from the released files
+        shell: bash
+        env:
+          PYTHONUTF8: '0'
+        run: python skills/tgdc-data-card/tests/smoke_partner_flow.py "$RUNNER_TEMP/partner-flow"

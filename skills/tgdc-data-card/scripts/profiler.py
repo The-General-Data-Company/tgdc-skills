@@ -13,11 +13,12 @@ import re
 import stat
 import uuid
 from collections import Counter, defaultdict
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from extractors import DEFAULT_LIMITS as PARSER_LIMITS, SUPPORTED, empty_result, extract
 from questions import questions
+import portable
 import spec_language
 
 DEFAULT_LIMITS = {**PARSER_LIMITS, 'max_hash_bytes': 1024 * 1024 * 1024}
@@ -41,9 +42,11 @@ class UnsupportedPlatform(ValueError):
 
 
 def require_supported_platform():
+    if portable.WINDOWS:
+        return
     if (os.name != 'posix' or not hasattr(os, 'O_NOFOLLOW') or not hasattr(os, 'O_DIRECTORY')
             or os.open not in os.supports_dir_fd or os.scandir not in os.supports_fd):
-        raise UnsupportedPlatform('Profiling requires macOS or POSIX/Linux with directory descriptors and no-follow operations. Windows is unsupported in v1.')
+        raise UnsupportedPlatform('Profiling requires Windows, macOS or Linux; this system lacks directory descriptors and no-follow operations.')
 
 
 def validate_limits(overrides):
@@ -61,6 +64,8 @@ def validate_limits(overrides):
 
 
 def checked_path(path):
+    if portable.WINDOWS:
+        return portable.canonical(path)          # final \\?\ form; links and junctions on the way raise ValueError
     path = Path(os.path.abspath(os.path.expanduser(str(path))))
     current = Path(path.anchor)
     for part in path.parts[1:]:
@@ -71,7 +76,9 @@ def checked_path(path):
 
 
 def open_nofollow(path, directory=False):
-    """Anchor every ancestor with directory descriptors on POSIX; never follow links."""
+    """Anchor every ancestor with directory descriptors on POSIX; never follow links. Windows checks the final path instead."""
+    if portable.WINDOWS:
+        return portable.open_nofollow_windows(path, directory)
     path = Path(path)
     flags = os.O_RDONLY | getattr(os, 'O_NOFOLLOW', 0)
     directory_flag = getattr(os, 'O_DIRECTORY', 0)
@@ -101,6 +108,15 @@ def extension(path):
     return suffix if suffix in PUBLIC_EXTENSIONS else 'other'
 
 
+def iso_date(seconds):
+    """A file date as ISO text in UTC. Windows refuses fromtimestamp before 1970 and after 3000; such a date is computed from the
+    epoch instead, clamped into the calendar."""
+    try:
+        return datetime.fromtimestamp(seconds, timezone.utc).isoformat()
+    except (OSError, OverflowError, ValueError):
+        return (datetime(1970, 1, 1, tzinfo=timezone.utc) + timedelta(seconds=min(max(seconds, -62135596800), 253402300799))).isoformat()
+
+
 def inventory(roots, limits):
     files = []; excluded_counts = Counter(); complete = True
     # Directory/file entries also have a bound, preventing empty-directory floods.
@@ -109,8 +125,8 @@ def inventory(roots, limits):
 
     def add_file(path, details):
         files.append({'path': str(path), 'extension': extension(path), 'source_extension': path.suffix.lower().lstrip('.'), 'bytes': details.st_size,
-                      'mtime': datetime.fromtimestamp(details.st_mtime, timezone.utc).isoformat(),
-                      '_identity': (details.st_dev, details.st_ino, details.st_size, details.st_mtime_ns)})
+                      'mtime': iso_date(details.st_mtime),
+                      '_identity': portable.identity(details)})
 
     def visit(path):
         nonlocal complete, visited_entries
@@ -125,7 +141,7 @@ def inventory(roots, limits):
         try:
             # Read at most the remaining bounded entry budget before sorting.
             entries = []
-            with os.scandir(descriptor) as iterator:
+            with os.scandir(portable.scandir_target(descriptor, path)) as iterator:
                 for entry in iterator:
                     if visited_entries + len(entries) >= entry_cap:
                         complete = False; break
@@ -136,12 +152,12 @@ def inventory(roots, limits):
                     complete = False; break
                 visited_entries += 1
                 child = path / entry.name
-                if entry.is_symlink():
-                    excluded_counts['symlink'] += 1; continue
-                if excluded(child):
-                    excluded_counts['excluded'] += 1; continue
                 try:
-                    details = entry.stat(follow_symlinks=False)
+                    if portable.is_link_entry(entry):
+                        excluded_counts['symlink'] += 1; continue
+                    if excluded(child) or portable.hidden_entry(entry):
+                        excluded_counts['excluded'] += 1; continue
+                    details = portable.entry_stat(entry)
                     if stat.S_ISDIR(details.st_mode):
                         visit(child)
                     elif stat.S_ISREG(details.st_mode):
@@ -238,20 +254,22 @@ def read_complete(item, maximum):
         before = os.fstat(source.fileno())
         if not stat.S_ISREG(before.st_mode):
             raise OSError('Source is not regular.')
-        identity = (before.st_dev, before.st_ino, before.st_size, before.st_mtime_ns)
+        identity = portable.identity(before)
         if identity != item['_identity']:
             return None, 'changed'
         data = source.read(maximum + 1)
         after = os.fstat(source.fileno())
         if len(data) > maximum:
             return None, 'size_cap'
-        if (after.st_dev, after.st_ino, after.st_size, after.st_mtime_ns) != identity:
+        if portable.identity(after) != identity:
             return None, 'changed'
     return data, None
 
 
 def output_directory(path):
     """Create/open ancestors relative to descriptors; no pathname write can follow links."""
+    if portable.WINDOWS:
+        return portable.output_directory_windows(path)
     if os.name != 'posix' or not hasattr(os, 'O_NOFOLLOW'):
         raise ValueError('Safe output requires POSIX descriptor operations.')
     flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
@@ -286,16 +304,15 @@ def verify_output_directory(path, descriptor):
 def write_json(directory, filename, payload, private=False):
     """Atomically replace JSON within an anchored output fd, including temp cleanup."""
     temporary = '.datacard-' + uuid.uuid4().hex
-    descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
-                         0o600 if private else 0o644, dir_fd=directory)
+    descriptor = portable.open_at(directory, temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600 if private else 0o644)
     try:
-        with os.fdopen(descriptor, 'w', encoding='utf-8') as stream:
-            os.fchmod(stream.fileno(), 0o600 if private else 0o644)
+        with os.fdopen(descriptor, 'w', encoding='utf-8', newline='\n') as stream:
+            portable.fchmod(stream.fileno(), 0o600 if private else 0o644)
             json.dump(payload, stream, indent=2, ensure_ascii=False, allow_nan=False); stream.write('\n')
-        os.replace(temporary, filename, src_dir_fd=directory, dst_dir_fd=directory)
+        portable.replace_at(directory, temporary, filename)
     finally:
         try:
-            os.unlink(temporary, dir_fd=directory)
+            portable.unlink_at(directory, temporary)
         except FileNotFoundError:
             pass
 

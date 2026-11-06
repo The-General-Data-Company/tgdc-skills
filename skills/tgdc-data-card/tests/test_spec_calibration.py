@@ -118,7 +118,7 @@ class PageSampleGuards(unittest.TestCase):
 
     def test_a_report_folder_with_url_characters_in_its_name_can_be_sampled(self):
         self.png('drawing plan.png', (300, 200))
-        for name in ('out #1 test', 'what? out', '100% 50%25 out'):
+        for name in ('out #1 test', '100% 50%25 out') + (() if os.name == 'nt' else ('what? out',)):     # Windows forbids ? in names
             with self.subTest(name=name):
                 out = self.base / name
                 self.run_spec(out)

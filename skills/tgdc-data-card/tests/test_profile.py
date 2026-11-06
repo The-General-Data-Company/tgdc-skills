@@ -13,6 +13,7 @@ SCRIPTS = Path(__file__).resolve().parents[1] / 'scripts'
 sys.path.insert(0, str(SCRIPTS))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from profiler import profile
+import platform_support as P
 from spec_samples import pdf_with_duplicate_keys
 
 
@@ -38,8 +39,10 @@ class ProfileTests(unittest.TestCase):
         self.assertNotIn('closed', json.dumps(result)); self.assertNotIn('workflow_completion', result['metrics'])
         self.assertEqual(before, hashlib.sha256(source.read_bytes()).hexdigest())
         private = self.out / 'manifest.private.json'
-        self.assertEqual(stat.S_IMODE(private.stat().st_mode), 0o600)
-        self.assertIn(str(source), private.read_text())
+        if not P.WINDOWS:                                     # Windows has no permission bits; the folder's access list applies
+            self.assertEqual(stat.S_IMODE(private.stat().st_mode), 0o600)
+        import profiler
+        self.assertIn(json.dumps(str(profiler.checked_path(source)))[1:-1], private.read_text(encoding='utf-8'))
         self.assertNotIn('order_id', private.read_text())
         self.assertEqual(json.loads((self.out / 'profile.json').read_text()), result)
 
@@ -196,14 +199,18 @@ class ProfileTests(unittest.TestCase):
         import profiler
         (self.root / 'one.txt').write_text('source bytes')
         original = profiler.write_json
-        swapped = False
+        swapped, refused = False, False
 
         def swap_before_write(*args, **kwargs):
-            nonlocal swapped
+            nonlocal swapped, refused
             if not swapped:
-                self.out.rename(self.base / 'original-output')
-                self.out.symlink_to(self.root, target_is_directory=True)
                 swapped = True
+                try:
+                    self.out.rename(self.base / 'original-output')
+                except PermissionError:             # Windows: the open output folder cannot be renamed, so it cannot be swapped
+                    refused = True
+                else:
+                    self.out.symlink_to(self.root, target_is_directory=True)
             return original(*args, **kwargs)
 
         with patch('profiler.write_json', side_effect=swap_before_write):
@@ -212,6 +219,7 @@ class ProfileTests(unittest.TestCase):
             except (ValueError, OSError):
                 pass
         self.assertTrue(swapped)
+        self.assertEqual(refused, P.WINDOWS)
         self.assertEqual(sorted(path.name for path in self.root.iterdir()), ['one.txt'])
         self.assertEqual((self.root / 'one.txt').read_text(), 'source bytes')
 
@@ -226,7 +234,7 @@ class ProfileTests(unittest.TestCase):
         def swap_after_check(path):
             nonlocal checks
             checked = original(path)
-            if checked == self.out:
+            if profiler.portable.comparable(checked) == self.out:
                 checks += 1
                 if checks == 2:
                     self.out.rename(self.base / 'original-output')
@@ -266,6 +274,7 @@ class ProfileTests(unittest.TestCase):
         self.assertTrue(swapped)
         self.assertEqual(sorted(path.name for path in self.root.iterdir()), ['one.txt'])
 
+    @unittest.skipIf(P.WINDOWS, 'Windows file systems hold no named pipes')
     def test_regular_source_replaced_by_fifo_cannot_block_before_parser(self):
         script = r"""
 import json, os, sys
@@ -313,7 +322,7 @@ print('FIFO replacement rejected without blocking')
         self.assertNotIn('PRIVATE_TEXT_METRIC_SENTINEL', manifest)
 
     def test_whitespace_only_extraction_has_observed_zero_text_files(self):
-        (self.root / 'blank.txt').write_text('   \n   ')
+        (self.root / 'blank.txt').write_bytes(b'   \n   ')
         result = profile([self.root], self.out)
         self.assertEqual(result['metrics']['documents_processed']['value'], 1)
         self.assertEqual(result['metrics']['files_with_extracted_text']['value'], 0)

@@ -341,7 +341,7 @@ class SpecReportTests(unittest.TestCase):
         flat = ' '.join(' '.join(pages).split())
         for sentence in ['1 file could not be extracted (password-protected or damaged) and is not counted', '1 archive was only partly readable',
                          '1 archive could not be opened at all', '996 PDFs (0.7 GB) among the extracted mailbox attachments were not checked for a text layer',
-                         '1 hidden file or folder (names that start with a dot) was not entered', '1 folder with a credential-like name was not entered',
+                         '1 hidden file or folder (names that start with a dot; on Windows also entries marked hidden and system files) was not entered', '1 folder with a credential-like name was not entered',
                          '1 symbolic link was not followed']:
             self.assertIn(sentence, flat, sentence)
         _, card_pages = self.card_only()

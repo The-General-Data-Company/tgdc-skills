@@ -1,6 +1,7 @@
 """Skill folder checks: catalog shape and the profile and render commands run from the folder."""
 import hashlib
 import json
+import os
 import re
 import stat
 import subprocess
@@ -75,7 +76,7 @@ class SkillTests(unittest.TestCase):
         self.assertTrue(text.startswith('---\nname: tgdc-data-card\n'))
         self.assertEqual(ROOT.name, 'tgdc-data-card')
         self.assertTrue((ROOT / 'LICENSE.txt').is_file())
-        self.assertIn('  version: "1.1.1"', text)
+        self.assertIn('  version: "1.2.0"', text)
         self.assertEqual(len([line for line in text.splitlines() if re.match(r'^\d\. \*\*', line)]), 8)
         for name in ('references/format-spec.md', 'references/privacy.md', 'references/field-guide.md'):
             self.assertIn(name, text)
@@ -96,7 +97,8 @@ class SkillTests(unittest.TestCase):
         self.assertEqual(profile['metrics']['rows_processed']['value'], 2)
         self.assertNotIn(str(selected), json.dumps(profile))
         self.assertEqual(source_hash, hashlib.sha256(text.read_bytes()).digest())
-        self.assertEqual(stat.S_IMODE((output / 'manifest.private.json').stat().st_mode), 0o600)
+        if os.name != 'nt':                                   # Windows has no permission bits; the folder's access list applies
+            self.assertEqual(stat.S_IMODE((output / 'manifest.private.json').stat().st_mode), 0o600)
         answers = output / 'answers.json'; answers.write_text(json.dumps({'provider_context': 'Synthetic test organization', 'dataset_departments': 'Synthetic operations'}))
         pdf = output / 'TGDC-Data-Card.pdf'
         result = subprocess.run([sys.executable, str(script), 'render', '--profile', str(output / 'profile.json'), '--answers', str(answers), '--output', str(pdf)], cwd=self.base, capture_output=True, text=True, timeout=60)
@@ -122,11 +124,14 @@ class SkillTests(unittest.TestCase):
 
     def test_unsupported_platform_fails_before_filesystem_work(self):
         import profiler
-        with patch.object(profiler.os, 'name', 'nt'), patch.object(profiler, 'checked_path') as checked:
+        # Windows, macOS and Linux are supported; any other system without descriptor operations is refused.
+        with patch.object(profiler.portable, 'WINDOWS', False), patch.object(profiler.os, 'name', 'java'), \
+                patch.object(profiler, 'checked_path') as checked:
             with self.assertRaisesRegex(ValueError, 'macOS|POSIX'):
                 profiler.profile(['/not-selected'], self.base / 'out')
             checked.assert_not_called()
-        with patch.object(profiler.os, 'supports_dir_fd', set()), patch.object(profiler, 'checked_path') as checked:
+        with patch.object(profiler.portable, 'WINDOWS', False), patch.object(profiler.os, 'name', 'posix'), \
+                patch.object(profiler.os, 'supports_dir_fd', set()), patch.object(profiler, 'checked_path') as checked:
             with self.assertRaisesRegex(ValueError, 'macOS|POSIX'):
                 profiler.profile(['/not-selected'], self.base / 'out')
             checked.assert_not_called()

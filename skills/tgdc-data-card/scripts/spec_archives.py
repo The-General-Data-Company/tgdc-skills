@@ -32,6 +32,7 @@ import zlib
 from collections import Counter
 from functools import lru_cache
 
+import portable
 import spec_content
 from spec_taxonomy import ARCHIVE_EXTENSIONS, CATEGORY_OF_EXTENSION, KEYNOTE_SIGNATURE, is_sensitive_path, raw_extension
 
@@ -70,21 +71,40 @@ class NoSpace(Exception):
 
 # ---------------------------------------------------------------------- tool processes
 _LIVE = {}      # pid -> Popen of every running tool; each is the leader of its own process group
+_JOBS = {}      # Windows: pid -> the job object that holds the tool and everything it starts
 
 
 def spawn(arguments, folder, environment, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL):
-    """Start a tool with no input in a process group of its own, so the whole group can be stopped."""
-    process = subprocess.Popen(arguments, stdin=subprocess.DEVNULL, stdout=stdout, stderr=stderr, cwd=folder, env=environment,
-                               start_new_session=True)
+    """Start a tool with no input in a process group of its own (on Windows: a job object), so all of it can be stopped."""
+    group = {'creationflags': subprocess.CREATE_NO_WINDOW} if portable.WINDOWS else {'start_new_session': True}
+    process = subprocess.Popen(arguments, stdin=subprocess.DEVNULL, stdout=stdout, stderr=stderr, cwd=portable.plain(folder),
+                               env=environment, **group)
+    if portable.WINDOWS:
+        job = portable.kill_on_close_job()
+        if not portable.add_to_job(job, process._handle):
+            portable.close_job(job)
+            job = None
+        _JOBS[process.pid] = job
     _LIVE[process.pid] = process
     return process
+
+
+def _kill(process):
+    if portable.WINDOWS:
+        job = _JOBS.get(process.pid)
+        if job:
+            portable.terminate_job(job)
+        else:
+            process.kill()
+    else:
+        os.killpg(process.pid, signal.SIGKILL)
 
 
 def stop_tool(process):
     """Kill the whole process group of a tool that is still running and collect it."""
     if process.poll() is None:
         try:
-            os.killpg(process.pid, signal.SIGKILL)
+            _kill(process)
         except OSError:
             pass
         try:
@@ -92,13 +112,14 @@ def stop_tool(process):
         except subprocess.TimeoutExpired:
             pass
     _LIVE.pop(process.pid, None)
+    portable.close_job(_JOBS.pop(process.pid, None))      # closing the job also ends anything the tool left running
 
 
 def terminate_tools():
     for process in list(_LIVE.values()):
-        if process.poll() is None:
+        if process.poll() is None or process.pid in _JOBS:
             try:
-                os.killpg(process.pid, signal.SIGKILL)
+                _kill(process)
             except OSError:
                 pass
 
@@ -118,21 +139,31 @@ def install_termination_handler(parent=None):
         os.kill(os.getpid(), signum)
     signal.signal(signal.SIGTERM, handler)
     _PARENT[0] = parent or os.getppid()
+    if portable.WINDOWS:
+        portable.process_alive(_PARENT[0])         # keeps a handle now, so a later reuse of the id cannot hide the parent's end
+
+
+def _parent_gone():
+    if portable.WINDOWS:                            # Windows keeps the original parent id after the parent ends
+        return not portable.process_alive(_PARENT[0])
+    return os.getppid() != _PARENT[0]
 
 
 def check_parent():
     """In a worker whose parent died (it was killed): stop every tool process group and leave. No effect outside a worker."""
-    if _PARENT[0] is not None and os.getppid() != _PARENT[0]:
+    if _PARENT[0] is not None and _parent_gone():
         terminate_tools()
         raise ParentGone(1)
 
 
 def lsar_for(unar_path):
     """The lsar listing tool installed next to unar, or None. unar is never run without a listing first."""
+    names = ('lsar.exe', 'lsar') if portable.WINDOWS else ('lsar',)
     for folder in dict.fromkeys([os.path.dirname(unar_path), os.path.dirname(os.path.realpath(unar_path))]):
-        candidate = os.path.join(folder, 'lsar')
-        if os.path.isfile(candidate) and os.access(candidate, os.X_OK):
-            return candidate
+        for name in names:
+            candidate = os.path.join(folder, name)
+            if os.path.isfile(candidate) and os.access(candidate, os.X_OK):
+                return candidate
     return None
 
 
@@ -143,16 +174,22 @@ def probe_tools(search_path=None):
         path = shutil.which(name, path=search_path)
         if path and (name != 'unar' or lsar_for(path)):
             found[name] = path
-    if 'bsdtar' not in found:
-        path = shutil.which('tar', path=search_path)
-        if path:
-            try:
-                banner = subprocess.run([path, '--version'], capture_output=True, text=True, timeout=10,
-                                        stdin=subprocess.DEVNULL).stdout
-            except (OSError, subprocess.SubprocessError):
-                banner = ''
-            if 'bsdtar' in banner:
-                found['bsdtar'] = path
+    seven = portable.windows_seven_zip() if search_path is None and '7z' not in found else None
+    if seven:
+        found['7z'] = seven                              # the 7-Zip installer does not add itself to PATH
+    candidates = [shutil.which('tar', path=search_path)]
+    if portable.WINDOWS and search_path is None:          # the tar of Windows itself is bsdtar, even when another tar comes first on PATH
+        candidates.append(os.path.join(os.environ.get('SystemRoot', 'C:\\Windows'), 'System32', 'tar.exe'))
+    for path in candidates:
+        if 'bsdtar' in found or not path or not os.path.isfile(path):
+            continue
+        try:
+            banner = subprocess.run([path, '--version'], capture_output=True, text=True, timeout=10,
+                                    stdin=subprocess.DEVNULL).stdout
+        except (OSError, subprocess.SubprocessError):
+            banner = ''
+        if 'bsdtar' in banner:
+            found['bsdtar'] = path
     return found
 
 
@@ -215,6 +252,14 @@ def classify_member(name):
     if normalized.startswith('__MACOSX/') or any(part.startswith('.') for part in parts):
         return 'hidden'
     return None
+
+
+SEVEN_WINDOWS = ['-sccUTF-8'] if portable.WINDOWS else []      # 7-Zip for Windows prints names in the console code page otherwise
+
+
+def native_name(name):
+    """A member path as 7-Zip expects it in a list file: with backslashes on Windows."""
+    return name.replace('/', '\\') if portable.WINDOWS else name
 
 
 def clean(text):
@@ -346,7 +391,7 @@ class Reader:
         if spool is not None:
             spool.close()
             if total > cap and not need_file:
-                os.unlink(spool.name)
+                portable.remove_file(spool.name)
                 return digest.hexdigest(), total, None, None
             return digest.hexdigest(), total, None, spool.name
         if dropped:
@@ -416,10 +461,7 @@ class Reader:
             record['unreadable'] = True
         finally:
             if spool:
-                try:
-                    os.unlink(spool)
-                except OSError:
-                    pass
+                portable.remove_file(spool)
         self.emit(record)
 
     def lose(self, count=1):
@@ -598,7 +640,7 @@ class Reader:
             self.failed[f'{kind}:not enough free disk space'] += 1
             return False
         finally:
-            shutil.rmtree(folder, ignore_errors=True)
+            portable.remove_tree(folder)
 
     def wait_for(self, process, arguments, timeout, watch=None, allowance=0, size_file=None):
         """Wait for a tool, checking the deadline, the folder it fills and the disk. Returns its exit code."""
@@ -654,8 +696,9 @@ class Reader:
     def list_archive(self, tool, executable, target, folder, environment):
         """Read what the archive holds before anything is extracted. A Listing, 'password', or False for damaged or unreadable."""
         listing_path = os.path.join(folder, 'listing.txt')
+        target = portable.plain(target)
         if tool in ('7zz', '7z'):
-            arguments = [executable, 'l', '-slt', '-ba', '-spd', '-bd', target]
+            arguments = [executable, 'l', '-slt', '-ba', '-spd', '-bd'] + SEVEN_WINDOWS + [target]
         elif tool == 'bsdtar':
             arguments = [executable, '-tvf', target]
         else:
@@ -672,7 +715,7 @@ class Reader:
             else:
                 listing = read_lsar_listing(listing_path)
         finally:
-            os.unlink(listing_path)
+            portable.remove_file(listing_path)
         # A tool that fails and lists nothing, or lists nothing at all, could not open the archive: header-encrypted or damaged.
         if listing is None or not listing.files:
             lowered = text.lower()
@@ -707,7 +750,7 @@ class Reader:
         executable = self.tools[tool]
         destination = os.path.join(folder, 'out')
         os.makedirs(destination, exist_ok=True)
-        environment = {'PATH': os.environ.get('PATH', ''), 'LC_ALL': 'C.UTF-8', 'LANG': 'C.UTF-8', 'HOME': folder}
+        environment = portable.tool_environment(portable.plain(folder))
         messages = os.path.join(folder, 'messages.txt')
         named, blind = set(), False        # members the failed tool points at; no member can be checked against the listing
         problems = 0
@@ -730,19 +773,22 @@ class Reader:
                 if wanted:
                     list_file = os.path.join(folder, 'wanted.txt')
                     with open(list_file, 'w', encoding='utf-8') as handle:
-                        handle.write('\n'.join(wanted) + '\n')
-                    code = self.run_guarded([executable, 'x', '-y', '-bd', '-spd', '-scsUTF-8', '-aoa', '-o' + destination, target, '@' + list_file],
+                        handle.write('\n'.join(native_name(name) for name in wanted) + '\n')
+                    code = self.run_guarded([executable, 'x', '-y', '-bd', '-spd', '-scsUTF-8', '-aoa'] + SEVEN_WINDOWS
+                                            + ['-o' + portable.plain(destination), portable.plain(target), '@' + portable.plain(list_file)],
                                             folder, environment, destination, self.allowance(), messages=messages)
                     named = named_by_tool(messages) if code != 0 else named
                     problems += 1 if code != 0 else 0
                 expected = len(wanted)
             else:
                 if tool == 'bsdtar':
-                    arguments = [executable, '-xf', target, '-C', destination, '--no-same-owner', '--no-same-permissions']
+                    arguments = [executable, '-xf', portable.plain(target), '-C', portable.plain(destination), '--no-same-owner', '--no-same-permissions']
                 else:
-                    arguments = [executable, '-q', '-D', '-o', destination, target]
+                    arguments = [executable, '-q', '-D', '-o', portable.plain(destination), portable.plain(target)]
                 code = self.run_guarded(arguments, folder, environment, destination, self.allowance(), messages=messages)
-                if code != 0 and not any(os.scandir(destination)):
+                with os.scandir(destination) as unpacked:      # closed at once: Windows cannot delete a folder that is still listed
+                    empty = not any(unpacked)
+                if code != 0 and empty:
                     return False
                 named = named_by_tool(messages) if code != 0 else named
                 problems += 1 if code != 0 else 0
@@ -784,10 +830,7 @@ class Reader:
             found += 1
             flag = classify_member(relative)
             if flag:
-                try:
-                    os.unlink(path)
-                except OSError:
-                    pass
+                portable.remove_file(path)
                 if record_flagged:
                     self.record_flagged(flag, relative, info.st_size, prefix)
         shorts_before = self.shorts
@@ -796,10 +839,7 @@ class Reader:
             normalized = unicodedata.normalize('NFC', relative)
             self.add_member(relative, info.st_size, lambda path=path: open(path, 'rb'), depth, prefix, expect=(sizes or {}).get(normalized),
                             doubtful=blind or normalized in named)
-            try:
-                os.unlink(path)
-            except OSError:
-                pass
+            portable.remove_file(path)
         return found, self.shorts - shorts_before
 
     def regular_files(self, destination):
@@ -816,6 +856,8 @@ class Reader:
                     info = entry.stat(follow_symlinks=False)
                 except OSError:
                     continue
+                if portable.is_link_stat(info):
+                    continue
                 if stat.S_ISDIR(info.st_mode):
                     stack.append(entry.path)
                 elif stat.S_ISREG(info.st_mode):
@@ -831,7 +873,7 @@ def folder_size(path):
             with os.scandir(stack.pop()) as entries:
                 for entry in entries:
                     try:
-                        if entry.is_symlink():
+                        if portable.is_link_entry(entry):
                             continue
                         if entry.is_dir(follow_symlinks=False):
                             stack.append(entry.path)
@@ -850,6 +892,8 @@ def named_by_tool(path):
     found = set()
     with open(path, 'rb') as handle:
         text = handle.read(MESSAGE_BYTES).decode('utf-8', 'replace')
+    if portable.WINDOWS:
+        text = text.replace('\\', '/')
     for line in text.split('\n'):
         line = line[:MESSAGE_LINE]
         start = 0
@@ -899,7 +943,8 @@ def read_seven_listing(path):
                 size = int(fields.get('Size') or 0)
             except ValueError:
                 size = 0
-            files.append((fields['Path'], size, fields.get('Encrypted', '-') == '+'))
+            name = fields['Path'].replace('\\', '/') if portable.WINDOWS else fields['Path']
+            files.append((name, size, fields.get('Encrypted', '-') == '+'))
     return Listing(files, links)
 
 

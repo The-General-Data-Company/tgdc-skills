@@ -1,5 +1,6 @@
 """The datacard.py spec, spec-sample and render commands run from the skill folder."""
 import json
+import os
 import subprocess
 import sys
 import tempfile
@@ -85,7 +86,8 @@ class CliTests(unittest.TestCase):
         done = cli('spec-sample', '--spec-dir', self.out, '--n', 20, cwd=self.base)
         self.assertEqual(done.returncode, 0, done.stderr)
         folder = self.out / 'calibration.private'
-        self.assertEqual(oct(folder.stat().st_mode & 0o777), '0o700')
+        if os.name != 'nt':                                   # Windows has no permission bits; the folder's access list applies
+            self.assertEqual(oct(folder.stat().st_mode & 0o777), '0o700')
         index = json.loads((folder / 'index.private.json').read_text())['images']
         images = sorted(p.name for p in folder.glob('*.png'))
         self.assertEqual(images, sorted(item['file'] for item in index))

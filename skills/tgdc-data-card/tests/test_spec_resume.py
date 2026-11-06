@@ -243,7 +243,8 @@ class SafetyTests(unittest.TestCase):
 
     def test_unsupported_platform_fails_before_any_file_work(self):
         import profiler
-        with mock.patch.object(profiler.os, 'name', 'nt'), mock.patch.object(formatspec, 'walk_roots') as walk:
+        with mock.patch.object(profiler.portable, 'WINDOWS', False), mock.patch.object(profiler.os, 'name', 'java'), \
+                mock.patch.object(formatspec, 'walk_roots') as walk:
             with self.assertRaisesRegex(ValueError, 'macOS|POSIX'):
                 run([self.data], self.base / 'o')
             walk.assert_not_called()

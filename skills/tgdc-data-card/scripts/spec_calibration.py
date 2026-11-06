@@ -7,12 +7,12 @@ unless the partner lets the agent view them. Nothing here uploads anything.
 import json
 import os
 import random
-import shutil
 import sqlite3
 from collections import defaultdict
 from pathlib import Path
 from urllib.parse import quote
 
+import portable
 import spec_content
 from formatspec import CACHE_NAME, _open_regular
 from profiler import checked_path
@@ -115,7 +115,10 @@ def sample_pages(directory, count=60, seed=20261025):
     cache = directory / CACHE_NAME
     if not cache.is_file():
         raise ValueError('Run the specification step first.')
-    db = sqlite3.connect(f'file:{quote(str(cache))}?mode=ro', uri=True)       # quoted: a folder name may hold # or ? or %
+    location = portable.plain(cache)
+    if portable.WINDOWS:                          # SQLite takes C:/x or, for a network share, ////server/share/x
+        location = ('//' if location.startswith('\\\\') else '') + location.replace('\\', '/')
+    db = sqlite3.connect(f'file:{quote(location)}?mode=ro', uri=True)       # quoted: a folder name may hold # or ? or %
     try:
         roots = json.loads(db.execute("SELECT value FROM meta WHERE key='roots'").fetchone()[0])
         config = json.loads(db.execute("SELECT value FROM meta WHERE key='config'").fetchone()[0])
@@ -130,8 +133,8 @@ def sample_pages(directory, count=60, seed=20261025):
             for slot in _pick(strata[stratum], number, rng):
                 plan.append((flag, slot))
     target = directory / FOLDER
-    if target.exists():
-        shutil.rmtree(target)
+    if target.exists() and not portable.remove_tree(target):
+        raise PermissionError('The previous page images could not be removed.')
     os.mkdir(target, 0o700)
     index, written = [], 0
     for flag, (root, relative, size, mtime_ns, key, found) in plan:
@@ -169,6 +172,6 @@ def sample_pages(directory, count=60, seed=20261025):
         image.save(target / name, format='PNG')
         os.chmod(target / name, 0o600)
         index.append({'file': name, 'candidate': flag})
-    (target / 'index.private.json').write_text(json.dumps({'images': index}, indent=2) + '\n')
+    (target / 'index.private.json').write_text(json.dumps({'images': index}, indent=2) + '\n', encoding='utf-8')
     os.chmod(target / 'index.private.json', 0o600)
     return written

@@ -6,12 +6,10 @@ stays on this machine. spec.json receives aggregates only: counts, sizes,
 years and partner-declared vocabulary. Nothing here opens a network
 connection, executes file content or modifies a source.
 """
-import fcntl
 import hashlib
 import json
 import multiprocessing
 import multiprocessing.connection
-import multiprocessing.reduction as reduction
 import os
 import re
 import shutil
@@ -26,6 +24,7 @@ from collections import Counter, defaultdict, deque
 from datetime import datetime, timezone
 from pathlib import Path
 
+import portable
 import spec_archives
 import spec_content
 from profiler import (checked_path, open_nofollow, output_directory, prepare_roots, require_supported_platform,
@@ -57,9 +56,15 @@ class SpecConfigError(ValueError):
 
 def acquire_lock(descriptor):
     """Exclusive lock on the output folder for the length of a run; a second run there is refused."""
-    lock = os.open(LOCK_NAME, os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600, dir_fd=descriptor)
     try:
-        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        lock = portable.open_at(descriptor, LOCK_NAME, os.O_RDWR | os.O_CREAT, 0o600)
+    except PermissionError as error:
+        if not portable.WINDOWS:
+            raise
+        # Windows refuses to open a lock file that a running run holds without sharing, or that is still being deleted.
+        raise SpecConfigError('Another specification run is using this output folder. Wait for it to finish.') from error
+    try:
+        portable.lock(lock)
     except OSError as error:
         os.close(lock)
         raise SpecConfigError('Another specification run is using this output folder. Wait for it to finish.') from error
@@ -72,7 +77,7 @@ def _terminate(signum, frame):
 
 def release_lock(descriptor, lock):
     try:
-        os.unlink(LOCK_NAME, dir_fd=descriptor)
+        portable.unlink_at(descriptor, LOCK_NAME)
     except OSError:
         pass
     os.close(lock)
@@ -100,8 +105,9 @@ def _patterns(value, key):
 
 
 def _inside(path, roots, key):
-    resolved = checked_path(path)
+    resolved = portable.comparable(checked_path(path))
     for index, root in enumerate(roots):
+        root = portable.comparable(root)
         if resolved == root or root in resolved.parents:
             return index, resolved.relative_to(root).as_posix() if resolved != root else ''
     raise SpecConfigError(f'{key} must be inside a selected root.')
@@ -233,7 +239,7 @@ def walk_roots(roots):
     for index, root in enumerate(roots):
         if root.is_file():
             details = root.stat(follow_symlinks=False)
-            entries.append(Entry(index, root.name, str(root), details.st_size, details.st_mtime_ns, details.st_dev, details.st_ino,
+            entries.append(Entry(index, root.name, str(root), details.st_size, details.st_mtime_ns, *portable.identity(details)[:2],
                                  *classify_file(str(root), root.name)))
             continue
         stack = [(root, '')]
@@ -246,13 +252,16 @@ def walk_roots(roots):
                 continue
             found = []
             try:
-                with os.scandir(descriptor) as iterator:
+                with os.scandir(portable.scandir_target(descriptor, directory)) as iterator:
                     for item in iterator:
                         try:
-                            if item.is_symlink():
+                            if portable.is_link_entry(item):
                                 stats['symlinks'] += 1
                                 continue
-                            found.append((item.name, item.stat(follow_symlinks=False)))
+                            if portable.hidden_entry(item):           # Windows hidden entries and system files: desktop.ini, Thumbs.db, ~$ lock files
+                                stats['hidden_entries'] += 1
+                                continue
+                            found.append((item.name, portable.entry_stat(item)))
                         except OSError:
                             stats['unreadable_entries'] += 1
             finally:
@@ -268,8 +277,8 @@ def walk_roots(roots):
                     else:
                         stack.append((directory / name, child))
                 elif stat.S_ISREG(details.st_mode):
-                    entries.append(Entry(index, child, str(directory / name), details.st_size, details.st_mtime_ns, details.st_dev,
-                                         details.st_ino, *classify_file(str(directory / name), name)))
+                    entries.append(Entry(index, child, str(directory / name), details.st_size, details.st_mtime_ns, *portable.identity(details)[:2],
+                                         *classify_file(str(directory / name), name)))
                 else:
                     stats['special_files'] += 1
     entries.sort(key=lambda entry: (entry.root, entry.rel))
@@ -383,13 +392,13 @@ def stored_ns(nanoseconds):
 
 class Cache:
     def __init__(self, directory_descriptor, path):
-        flags = os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW
-        descriptor = os.open(os.path.basename(path), flags, 0o600, dir_fd=directory_descriptor)
-        os.fchmod(descriptor, 0o600)
+        descriptor = portable.open_at(directory_descriptor, os.path.basename(path), os.O_RDWR | os.O_CREAT, 0o600)
+        portable.fchmod(descriptor, 0o600)
         os.close(descriptor)
         self.path = str(path)
-        self.db = sqlite3.connect(self.path, isolation_level=None)
-        self.db.execute('PRAGMA journal_mode=WAL')
+        self.db = sqlite3.connect(portable.plain(self.path), isolation_level=None)
+        # The write-ahead log needs shared memory, which a network share does not provide; there the cache keeps a rollback journal.
+        self.db.execute('PRAGMA journal_mode=' + ('DELETE' if portable.is_network_path(self.path) else 'WAL'))
         self.db.execute('PRAGMA synchronous=NORMAL')
         self.db.execute('CREATE TABLE IF NOT EXISTS meta(key TEXT PRIMARY KEY, value TEXT)')
         self.db.execute('CREATE TABLE IF NOT EXISTS files(id BLOB PRIMARY KEY, root INTEGER, path BLOB, size INTEGER, mtime_ns INTEGER, status TEXT, result TEXT)')
@@ -524,7 +533,7 @@ def open_verified(path, identity):
         info = os.fstat(descriptor)
         if not stat.S_ISREG(info.st_mode):
             raise OSError('not a regular file')
-        if identity is not None and (info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns) != tuple(identity):
+        if identity is not None and portable.identity(info) != tuple(identity):
             os.close(descriptor)
             return None, 'changed'
     except OSError:
@@ -586,7 +595,7 @@ def process_task(task, settings, stage, descriptors, emit=None):
         info = os.fstat(stream.fileno())
         if not stat.S_ISREG(info.st_mode):
             return {'status': 'io_error'}
-        if (info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns) != tuple(task['identity']):
+        if portable.identity(info) != tuple(task['identity']):
             return {'status': 'changed'}
         size = task['identity'][2]
         text_head = extension in spec_content.TEXT_HEAD_EXTENSIONS and not task.get('hash_only')
@@ -693,7 +702,7 @@ def _read_archive(task, streams, size, name, kind, settings, emit=None):
     finally:
         for item in opened:
             item.close()
-        shutil.rmtree(folder, ignore_errors=True)
+        portable.remove_tree(folder)
 
 
 def worker_main(connection, settings):
@@ -709,7 +718,7 @@ def worker_main(connection, settings):
                 break
             if task is None:
                 break
-            descriptors = [reduction.recv_handle(connection) for _ in range(task['handles'])]
+            descriptors = [portable.receive_descriptor(connection) for _ in range(task['handles'])]
             try:
                 result = process_task(task, settings, lambda sha: connection.send(('hash', sha)), descriptors,
                                       emit=lambda start, batch: connection.send(('members', (start, batch))))
@@ -722,11 +731,13 @@ def worker_main(connection, settings):
 
 # --------------------------------------------------------------------------- worker pool
 class Worker:
-    def __init__(self, context, settings, target=None):
+    def __init__(self, context, settings, target=None, job=None):
         parent, child = context.Pipe()
         self.target = target or worker_main
         self.process = context.Process(target=self.target, args=(child, settings), daemon=True)
         self.process.start()
+        if portable.WINDOWS:
+            portable.add_to_job(job, self.process.sentinel)      # the worker and its tools die with this process, even when it is killed
         child.close()
         self.connection = parent
         self.task = None
@@ -770,7 +781,7 @@ def release(task):
     """Remove the private folder the parent made for a task, whatever became of the task."""
     temp = task.pop('temp', None) if isinstance(task, dict) else None
     if temp:
-        shutil.rmtree(temp, ignore_errors=True)
+        portable.remove_tree(temp)
 
 
 def run_pool(tasks, count, settings, on_result, target=None, on_members=None):
@@ -781,12 +792,15 @@ def run_pool(tasks, count, settings, on_result, target=None, on_members=None):
     context = multiprocessing.get_context('spawn')
     settings = {**settings, 'parent_pid': os.getpid()}          # a worker leaves when this process is gone
     pending = deque(tasks)
-    workers = [Worker(context, settings, target or worker_main) for _ in range(max(1, min(count, len(pending) or 1)))]
+    job = portable.kill_on_close_job() if portable.WINDOWS else None
+    workers = []
 
     def replace(worker):
         worker.kill()
-        worker.__init__(context, settings, worker.target)
+        worker.__init__(context, settings, worker.target, job)
     try:
+        for _ in range(max(1, min(count, len(pending) or 1))):
+            workers.append(Worker(context, settings, target or worker_main, job))
         while pending or any(worker.task for worker in workers):
             for worker in workers:
                 while worker.task is None and pending:
@@ -805,7 +819,7 @@ def run_pool(tasks, count, settings, on_result, target=None, on_members=None):
                         message['handles'] = len(descriptors)
                         worker.connection.send(message)
                         for descriptor in descriptors:
-                            reduction.send_handle(worker.connection, descriptor, worker.process.pid)
+                            portable.send_descriptor(worker.connection, descriptor, worker.process.pid)
                     except (OSError, ValueError, RuntimeError):
                         failed_to_send = True          # the worker died at start; RuntimeError is the missing hand-over acknowledgement
                     finally:
@@ -848,6 +862,15 @@ def run_pool(tasks, count, settings, on_result, target=None, on_members=None):
                 if finished is None:
                     continue
                 task = worker.task
+                if finished.get('status') == 'crashed' and not worker.sha and task.get('_attempt', 0) < 1:
+                    # The worker died before it read the file, for example at start: the file gets one more try on a new worker.
+                    # macOS notices this when the file is handed over; Windows and Linux only when the worker's pipe closes.
+                    replace(worker)
+                    worker.task = None
+                    release(task)
+                    task['_attempt'] = 1
+                    pending.appendleft(task)
+                    continue
                 if finished.get('status') in ('crashed', 'timeout'):
                     if worker.sha:
                         finished['sha'] = worker.sha
@@ -868,6 +891,7 @@ def run_pool(tasks, count, settings, on_result, target=None, on_members=None):
         for worker in workers:
             if worker.task is not None:
                 release(worker.task)
+        portable.close_job(job)
 
 
 # --------------------------------------------------------------------------- run
@@ -906,10 +930,7 @@ def check_dependencies():
 
 def installed_ram():
     """Bytes of installed memory, or None when the system does not say."""
-    try:
-        return os.sysconf('SC_PHYS_PAGES') * os.sysconf('SC_PAGE_SIZE')
-    except (ValueError, OSError, AttributeError):
-        return None
+    return portable.physical_memory()
 
 
 _UNKNOWN = object()
@@ -948,7 +969,7 @@ def run_spec(sources, output, config=None, workers=None, limits=None, tools=None
         lock = acquire_lock(descriptor)
         verify_output_directory(output, descriptor)
         if temp_dir.exists():                       # left by a run that was killed; extracted data must not outlive it
-            shutil.rmtree(temp_dir, ignore_errors=True)
+            portable.remove_tree(temp_dir)
         os.mkdir(temp_dir, 0o700)
         settings['temp_dir'] = str(temp_dir)
         entries, walk_stats = walk_roots(roots)
@@ -1027,7 +1048,7 @@ def run_spec(sources, output, config=None, workers=None, limits=None, tools=None
         if cache is not None:
             cache.close()
         if lock is not None:                    # a refused run must not touch the temporary data of the run that holds the lock
-            shutil.rmtree(temp_dir, ignore_errors=True)
+            portable.remove_tree(temp_dir)
             release_lock(descriptor, lock)
         if previous_handler is not None:
             signal.signal(signal.SIGTERM, previous_handler)

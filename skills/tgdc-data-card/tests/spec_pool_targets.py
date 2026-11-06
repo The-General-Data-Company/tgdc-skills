@@ -1,7 +1,8 @@
 """Worker targets that misbehave on purpose, for the pool tests."""
 import os
 import time
-from multiprocessing import reduction
+
+import portable
 
 
 def misbehaving_worker(connection, settings):
@@ -13,7 +14,7 @@ def misbehaving_worker(connection, settings):
         if task is None:
             break
         for _ in range(task['handles']):
-            os.close(reduction.recv_handle(connection))
+            os.close(portable.receive_descriptor(connection))
         name = task['name']
         if name.startswith('hang_after_hash'):
             connection.send(('hash', 'abc123'))
@@ -40,7 +41,7 @@ def hold_a_tool(work, tool):
 
 def _good_reply(connection, task, extra=None):
     for _ in range(task['handles']):
-        os.close(reduction.recv_handle(connection))
+        os.close(portable.receive_descriptor(connection))
     connection.send(('hash', 'ok'))
     connection.send(('done', {'status': 'ok', 'sha': 'ok', **(extra or {})}))
 
@@ -75,7 +76,7 @@ def temp_worker(connection, settings):
         if task is None:
             break
         for _ in range(task['handles']):
-            os.close(reduction.recv_handle(connection))
+            os.close(portable.receive_descriptor(connection))
         name = task['name']
         temp = task.get('temp')
         if temp:
@@ -101,7 +102,7 @@ def members_worker(connection, settings):
         if task is None:
             break
         for _ in range(task['handles']):
-            os.close(reduction.recv_handle(connection))
+            os.close(portable.receive_descriptor(connection))
         connection.send(('hash', 'ok'))
         connection.send(('members', (0, [{'n': 'one'}, {'n': 'two'}])))
         connection.send(('members', (2, [{'n': 'three'}])))

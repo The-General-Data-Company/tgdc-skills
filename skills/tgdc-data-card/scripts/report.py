@@ -19,6 +19,8 @@ from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, PageBreak, KeepTogether, Flowable, Indenter
 
+import portable
+
 ASSETS = Path(__file__).resolve().parents[1] / 'assets'
 BG = colors.HexColor('#121212')
 WHITE = colors.HexColor('#EAEAEA')
@@ -384,6 +386,10 @@ def _methodology(profile):
     return story
 
 
+class OutputInUse(PermissionError):
+    """The previous PDF could not be replaced, because another program holds it open."""
+
+
 def render(profile_path, answers_path, output_path, spec_path=None):
     """Validate first and atomically replace only a successfully built PDF.
 
@@ -392,10 +398,10 @@ def render(profile_path, answers_path, output_path, spec_path=None):
     require_supported_platform()
     profile_path, answers_path, output = map(Path, (profile_path, answers_path, output_path))
     output = checked_path(output)
-    inputs = [profile_path.resolve(), answers_path.resolve()] + ([Path(spec_path).resolve()] if spec_path else [])
-    if output.resolve() in inputs:
+    inputs = [portable.comparable(path.resolve()) for path in [profile_path, answers_path] + ([Path(spec_path)] if spec_path else [])]
+    if portable.comparable(output.resolve()) in inputs:
         raise ValueError('Output must differ from input files.')
-    if output.is_symlink() or any(parent.is_symlink() for parent in output.parents):
+    if portable.is_link_path(output) or any(portable.is_link_path(parent) for parent in output.parents):
         raise ValueError('Symlink output is not permitted.')
     profile, answers = _load(profile_path), _load(answers_path)
     _validate(profile, answers)
@@ -409,19 +415,22 @@ def render(profile_path, answers_path, output_path, spec_path=None):
     created = False
     try:
         verify_output_directory(output.parent, directory)
-        descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600, dir_fd=directory)
+        descriptor = portable.open_at(directory, temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
         created = True
         with os.fdopen(descriptor, 'wb') as stream:
             document = SimpleDocTemplate(stream, pagesize=A4, leftMargin=36, rightMargin=36, topMargin=96, bottomMargin=68, title='TGDC Enterprise Data Card', author='TGDC', subject='Selected scope evidence and provider declarations', creator='TGDC Data Card', producer=PRODUCER)
             document.build(story, onFirstPage=_header_footer, onLaterPages=_header_footer)
         verify_output_directory(output.parent, directory)
-        os.replace(temporary, output.name, src_dir_fd=directory, dst_dir_fd=directory)
+        try:
+            portable.replace_at(directory, temporary, output.name)
+        except PermissionError as error:            # Windows: the previous PDF is open in a viewer
+            raise OutputInUse(str(error)) from error
         verify_output_directory(output.parent, directory)
     finally:
         try:
             if created:
                 try:
-                    os.unlink(temporary, dir_fd=directory)
+                    portable.unlink_at(directory, temporary)
                 except FileNotFoundError:
                     pass
         finally:

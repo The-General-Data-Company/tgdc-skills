@@ -31,12 +31,13 @@ The report folder also holds `profile.json` and `spec.json` with the same aggreg
 
 ## What you need
 
-- macOS or Linux with Python 3.11 or newer. Windows is not supported directly.
+- Windows, macOS or Linux with Python 3.11 or newer. On Windows, install Python from [python.org](https://www.python.org/downloads/) (the Python install manager, or the Windows installer with "Add python.exe to PATH" checked). Then open a new terminal, run `python --version` once, and restart your agent.
 - Claude Code, OpenAI Codex or another coding agent that can run commands and read files.
-- The path of the folder to examine, and a separate empty folder for the report, outside the folder you examine.
+- The path of the folder to examine, and a separate empty folder for the report, outside the folder you examine. Choose a report folder on a local disk outside OneDrive, Dropbox, Google Drive and iCloud, for example a new folder `Report` inside the working folder of your agent: the private records and the temporary unpacked files are written there and must not be uploaded by a sync client. On Windows, Desktop and Documents are often inside OneDrive.
 - Free disk space at least as large as the largest compressed archive in the folder, for temporary unpacking.
-- For RAR and 7z archives, a tool such as 7-Zip or The Unarchiver helps. ZIP archives need nothing extra. The agent asks before it installs anything.
-- Files in Google Drive for desktop: mark the folder as "Available offline" first, or copy it to a local disk.
+- For RAR and 7z archives, a tool such as 7-Zip (Windows, from [7-zip.org](https://www.7-zip.org)) or The Unarchiver (macOS) helps. ZIP archives need nothing extra. The agent asks before it installs anything.
+- Files in Google Drive for desktop: mark the folder as "Available offline" first. Files in OneDrive or Dropbox: set the folder to "Always keep on this device". Or copy the folder to a local disk. Otherwise each file that exists only online is downloaded when it is read, or cannot be read at all.
+- Folders on a network drive or file server work as well. Use the drive letter or the network path (for example `\\server\share\Archive`) as the path of the folder to examine.
 
 ## Time
 
@@ -53,15 +54,18 @@ The agent reads every file once, including the files inside compressed archives,
 ```text
 Please create a TGDC Data Card with the full data format specification.
 
-1. Download two files from the release tgdc-data-card-v1.1.1 of
+1. Download two files from the release tgdc-data-card-v1.2.0 of
    https://github.com/The-General-Data-Company/tgdc-skills
-   namely tgdc-data-card-v1.1.1.tar.gz and SHA256SUMS.
+   namely tgdc-data-card-v1.2.0.tar.gz and SHA256SUMS.
    Verify the checksum with: shasum -a 256 -c SHA256SUMS --ignore-missing
-   (on Linux: sha256sum -c SHA256SUMS --ignore-missing). Stop if it fails.
-2. Unpack the archive into this working folder.
+   (on Linux and in Git Bash on Windows: sha256sum -c SHA256SUMS --ignore-missing;
+   in PowerShell: (Get-FileHash tgdc-data-card-v1.2.0.tar.gz).Hash must equal
+   the value in SHA256SUMS, ignoring upper and lower case). Stop if it fails.
+2. Unpack the archive into this working folder (tar -xzf works on Windows too).
 3. Read tgdc-data-card/SKILL.md completely and follow it step by step.
 4. The files are in: /path/to/the/archive
    Put the report in: /path/to/an/empty/report/folder
+   (on Windows for example: D:\Archive and C:\Users\Name\TGDC\Report)
 5. Run the Data Card profile and the full data format specification,
    then render one PDF and show it to me.
 ```

@@ -21,10 +21,11 @@ sys.path.insert(0, str(HERE))
 import spec_archives as A
 import spec_samples as S
 import spec_taxonomy as T
+import platform_support as P
 from spec_pool_targets import hold_a_tool
 
 SEVEN = shutil.which('7zz') or shutil.which('7z')
-BSDTAR = shutil.which('bsdtar') or ('/usr/bin/bsdtar' if Path('/usr/bin/bsdtar').exists() else None)
+BSDTAR = shutil.which('bsdtar') or ('/usr/bin/bsdtar' if Path('/usr/bin/bsdtar').exists() else None) or A.probe_tools().get('bsdtar')
 CREDENTIAL_MEMBERS = ['home/.ssh/id_rsa', 'home/.ssh/id_ed25519', 'keys/service-account.json', 'keys/oauth_client.json', 'token.txt', 'tokens.json',
                       'api_key.txt', 'My Passwords/list.txt', 'ACME Credentials/x.txt']
 
@@ -37,18 +38,8 @@ def zip_bytes(entries):
     return buffer.getvalue()
 
 
-def script(path, text):
-    Path(path).write_text('#!/bin/sh\n' + text)
-    os.chmod(path, 0o755)
-    return str(path)
-
-
-def alive(pid):
-    try:
-        os.kill(pid, 0)
-    except ProcessLookupError:
-        return False
-    return True
+script = P.shell_tool
+alive = P.alive
 
 
 def gone_within(pids, seconds=5.0):
@@ -390,7 +381,7 @@ for a in "$@"; do case "$a" in -o*) out="${{a#-o}}";; esac; done
 
     def test_the_watchdog_kills_the_whole_process_group_when_the_folder_outgrows_the_allowance(self):
         pids = self.base / 'pids.txt'
-        tool = self.fake_seven(10, f'sleep 120 &\necho $! >> "{pids}"\necho $$ >> "{pids}"\ndd if=/dev/zero of="$out/a.txt" bs=1048576 count=5 2>/dev/null\nwait')
+        tool = P.hanging_seven(self.base / 'fake7zz', pids, fill_bytes=5 * 1048576)
         reader, opened, elapsed = self.run_fake(tool, max_expanded_bytes=1_000_000)
         self.assertTrue(opened)
         self.assertEqual(reader.partly, 1)
@@ -398,6 +389,7 @@ for a in "$@"; do case "$a" in -o*) out="${{a#-o}}";; esac; done
         self.assertTrue(gone_within([int(p) for p in pids.read_text().split()]), 'the tool and its child must both be stopped')
         self.assertEqual(list(self.work.iterdir()), [])
 
+    @unittest.skipIf(P.WINDOWS, 'Windows has no process groups; a job object holds the tool, which the watchdog test covers')
     def test_a_tool_runs_in_its_own_process_group(self):
         groups = self.base / 'groups.txt'
         tool = self.fake_seven(10, f'ps -o pid=,pgid= -p $$ >> "{groups}"\nprintf x > "$out/a.txt"')
@@ -410,7 +402,7 @@ for a in "$@"; do case "$a" in -o*) out="${{a#-o}}";; esac; done
     def test_terminating_the_worker_stops_its_tool_and_children(self):
         import multiprocessing
         pids = self.base / 'pids.txt'
-        tool = self.fake_seven(10, f'sleep 120 &\necho $! >> "{pids}"\necho $$ >> "{pids}"\nwait')
+        tool = P.hanging_seven(self.base / 'fake7zz', pids)
         context = multiprocessing.get_context('spawn')
         process = context.Process(target=hold_a_tool, args=(str(self.work), tool))
         process.start()
@@ -425,7 +417,7 @@ for a in "$@"; do case "$a" in -o*) out="${{a#-o}}";; esac; done
 
     def test_a_worker_that_lost_its_parent_stops_the_tool_and_leaves_its_folder_clean(self):
         pids = self.base / 'pids.txt'
-        tool = self.fake_seven(10, f'sleep 120 &\necho $! >> "{pids}"\necho $$ >> "{pids}"\nwait')
+        tool = P.hanging_seven(self.base / 'fake7zz', pids)
         reader = self.reader({'7zz': tool})
         parent = [os.getppid()]
 

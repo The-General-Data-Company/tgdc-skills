@@ -1,0 +1,67 @@
+name: data-card-tests
+on:
+  push:
+    paths:
+      - 'skills/tgdc-data-card/**'
+      - '.github/workflows/data-card-tests.yml'
+  pull_request:
+    paths:
+      - 'skills/tgdc-data-card/**'
+      - '.github/workflows/data-card-tests.yml'
+  workflow_dispatch: {}
+permissions:
+  contents: read
+jobs:
+  test:
+    name: ${{ matrix.os }} / Python ${{ matrix.python }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest, macos-latest]
+        python: ['3.11', '3.12', '3.13', '3.14', '3.15']
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    defaults:
+      run:
+        shell: bash
+        working-directory: skills/tgdc-data-card
+    env:
+      TGDC_SKIP_SLOW: ${{ matrix.python != '3.14' && '1' || '' }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+          allow-prereleases: true
+      - name: Extraction tools
+        run: |
+          case "$RUNNER_OS" in
+            Linux) sudo apt-get update -q && (sudo apt-get install -y -q 7zip || sudo apt-get install -y -q p7zip-full) && sudo apt-get install -y -q libarchive-tools ;;
+            macOS) HOMEBREW_NO_AUTO_UPDATE=1 brew install sevenzip ;;
+            Windows) ls "/c/Program Files/7-Zip/7z.exe" && echo "C:\\Program Files\\7-Zip" >> "$GITHUB_PATH" ;;
+          esac
+      - name: Dependencies
+        run: python -m pip install --index-url https://pypi.org/simple --requirement scripts/requirements.txt
+      - name: Tests
+        env:
+          PYTHONUTF8: '1'                 # the fixtures write UTF-8 text; the scripts name every encoding themselves
+        run: python -m unittest discover -s tests -v
+      - name: Partner flow end to end
+        env:
+          PYTHONUTF8: '0'                 # the system default encoding, as a partner's machine has it
+        run: python tests/smoke_partner_flow.py "$RUNNER_TEMP/partner-flow"
+      - name: README install steps in Windows PowerShell
+        if: runner.os == 'Windows' && matrix.python == '3.14'
+        shell: powershell
+        working-directory: .
+        run: |
+          sh scripts/build_release.sh
+          Set-Location dist
+          $V = (Get-ChildItem tgdc-data-card-v*.tar.gz).Name -replace '^tgdc-data-card-v(.*)\.tar\.gz$', '$1'
+          $expected = (@(Get-Content SHA256SUMS) -match "tgdc-data-card-v$V.tar.gz")[0].Split(" ")[0]
+          if ((Get-FileHash "tgdc-data-card-v$V.tar.gz" -Algorithm SHA256).Hash -ne $expected) { throw "Checksum mismatch" } else {
+            New-Item -ItemType Directory -Force unpacked | Out-Null; tar -xzf "tgdc-data-card-v$V.tar.gz" -C unpacked }
+          if (-not (Test-Path unpacked/tgdc-data-card/SKILL.md)) { throw "The skill was not unpacked" }
+          Write-Output "README steps verified for $V"
