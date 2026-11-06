@@ -46,7 +46,8 @@ jobs:
             New-Item -ItemType Directory -Force skills | Out-Null; tar -xzf "tgdc-data-card-v$V.tar.gz" -C skills }
       - name: The released skill names its version
         shell: bash
-        run: grep -q "version: \"${{ inputs.version }}\"" skills/tgdc-data-card/SKILL.md
+        run: |
+          grep -q "version: \"${{ inputs.version }}\"" skills/tgdc-data-card/SKILL.md
       - name: Extraction tools
         shell: bash
         run: |
