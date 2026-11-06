@@ -1,17 +1,22 @@
 """Find copies of identity documents on every page and image of the given files.
 
-Input:  a TSV file with one "<id><TAB><absolute path>" per line (source files and
-        extracted attachments or archive members).
+Input:  a UTF-8 TSV file with one "<id><TAB><absolute path>" per line (source files and
+        extracted attachments or archive members). A list that PowerShell wrote in UTF-16 or
+        in the Windows code page is read as well.
 Output: a CSV with one row per page or image: id, page, rotation, faces, white_share,
         text_chars, mrz_lines, mrz_valid, id_terms, hint.
         hint is P4 (identity document), review (possible identity document), or empty.
 Stdout: counts only. Errors go to the log file by id, never with paths or content.
+        Exits with 2 and prints error=<reason> if tesseract or the face model is missing.
 
 Usage:  python id_signals.py INPUT.tsv OUTPUT.csv LOGFILE [--dpi 150]
 """
 import csv
 import io
+import locale
+import os
 import re
+import shutil
 import subprocess
 import sys
 import unicodedata
@@ -46,9 +51,62 @@ US_CARD_LABELS = ["dob", "exp", "iss", "hgt", "wgt", "dln", "eyes", "sex", "clas
 # Cards without a photo. A short page with all parts of one entry is the card itself.
 NO_PHOTO_CARDS = [("this number has been established for",),           # Social Security card
                   ("medicare health insurance", "medicare number")]    # Medicare card
-CASCADE = cv2.CascadeClassifier(cv2.data.haarcascades + "haarcascade_frontalface_default.xml")
 MRZ_LINE = re.compile(r"^[A-Z0-9<]{28,46}$")
 WEIGHTS = (7, 3, 1)
+WINDOWS = os.name == "nt"
+TESSERACT = None
+CASCADE = None
+
+
+def native(path):
+    """The path as the OS opens it. On Windows an extended-length path, so that paths longer than 260
+    characters on local disks, mapped drives and network shares open without the long-path setting."""
+    path = str(path)
+    if not WINDOWS:
+        return path
+    path = path.replace("/", "\\")
+    if path.startswith(("\\\\?\\", "\\\\.\\")):          # already extended, or a device path
+        return path
+    path = os.path.abspath(path)
+    return "\\\\?\\UNC\\" + path[2:] if path.startswith("\\\\") else "\\\\?\\" + path
+
+
+def read_list(path):
+    """The input list as text: UTF-8 (with or without a byte order mark), UTF-16 with a byte order mark,
+    which PowerShell 5.1 writes with > and Out-File, or else the code page of this machine."""
+    data = Path(native(path)).read_bytes()
+    if data.startswith((b"\xff\xfe", b"\xfe\xff")):
+        return data.decode("utf-16", errors="replace")
+    try:
+        return data.decode("utf-8-sig")
+    except UnicodeDecodeError:
+        return data.decode(locale.getpreferredencoding(False), errors="replace")
+
+
+def find_tesseract():
+    """tesseract on PATH, or on Windows in the install folder of the usual installer, which is not on PATH."""
+    found = shutil.which("tesseract")
+    if found or not WINDOWS:
+        return found
+    local = os.environ.get("LOCALAPPDATA")
+    for base in (os.environ.get("ProgramFiles"), os.environ.get("ProgramFiles(x86)"),
+                 os.path.join(local, "Programs") if local else None):
+        candidate = os.path.join(base or "", "Tesseract-OCR", "tesseract.exe")
+        if base and os.path.isfile(candidate):
+            return candidate
+    return None
+
+
+def load_cascade(folder=None):
+    """The face model bundled with OpenCV. OpenCV cannot open a file path with letters outside ASCII on
+    Windows (for example a user folder named Jürgen), so the model is then read from memory."""
+    path = Path(folder or cv2.data.haarcascades) / "haarcascade_frontalface_default.xml"
+    cascade = cv2.CascadeClassifier(str(path))
+    if cascade.empty() and path.is_file():
+        storage = cv2.FileStorage(path.read_text(encoding="utf-8"), cv2.FILE_STORAGE_READ | cv2.FILE_STORAGE_MEMORY)
+        cascade = cv2.CascadeClassifier()
+        cascade.read(storage.getFirstTopLevelNode())
+    return cascade
 
 
 def fold(text):
@@ -93,8 +151,9 @@ def ocr(gray):
     ok, png = cv2.imencode(".png", gray)
     if not ok:
         return ""
-    run = subprocess.run(["tesseract", "stdin", "stdout", "--psm", "6", "-l", "eng"],
-                         input=png.tobytes(), capture_output=True, timeout=120)
+    run = subprocess.run([TESSERACT, "stdin", "stdout", "--psm", "6", "-l", "eng"],
+                         input=png.tobytes(), capture_output=True, timeout=120,
+                         creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
     return run.stdout.decode("utf-8", "ignore")
 
 
@@ -177,21 +236,26 @@ def page_images(path, dpi):
 
 
 def main():
+    global TESSERACT, CASCADE
     src, out, log = Path(sys.argv[1]), Path(sys.argv[2]), Path(sys.argv[3])
+    TESSERACT, CASCADE = find_tesseract(), load_cascade()
+    if not TESSERACT or CASCADE.empty():
+        print("error=" + ("tesseract_not_found" if not TESSERACT else "face_model_not_found"))
+        sys.exit(2)
     dpi = int(sys.argv[sys.argv.index("--dpi") + 1]) if "--dpi" in sys.argv else 150
     counts = {"files": 0, "pages": 0, "P4_files": 0, "review_files": 0, "errors": 0}
     fields = ["id", "page", "rotation", "faces", "white_share", "text_chars", "mrz_lines", "mrz_valid", "id_terms", "hint"]
-    with open(out, "w", newline="") as fo, open(log, "a") as lg:
+    with open(out, "w", newline="", encoding="utf-8") as fo, open(log, "a", encoding="utf-8") as lg:
         writer = csv.DictWriter(fo, fieldnames=fields)
         writer.writeheader()
-        for line in src.read_text().splitlines():
+        for line in read_list(src).splitlines():
             if "\t" not in line:
                 continue
             fid, p = line.split("\t", 1)
             counts["files"] += 1
             hints = set()
             try:
-                for page, gray in page_images(Path(p), dpi):
+                for page, gray in page_images(Path(native(p)), dpi):
                     row = analyze(gray)
                     counts["pages"] += 1
                     hints.add(row["hint"])

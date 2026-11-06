@@ -1,0 +1,123 @@
+name: clean-copy-windows-setup
+# The Windows setup of the operator guide (A3, A4) on a fresh runner: winget and MSYS2 installs, the PATH step, an extra
+# OCR language, the run folder, the local copy of a network share, then the safety probes of Phase 0 and the detector
+# tests inside the elevated Codex sandbox. Flags marked CI only make winget run without questions.
+on:
+  push:
+    paths:
+      - 'skills/tgdc-clean-copy/**'
+      - '.github/clean-copy/**'
+      - '.github/workflows/clean-copy-windows-setup.yml'
+  pull_request:
+    paths:
+      - 'skills/tgdc-clean-copy/**'
+      - '.github/clean-copy/**'
+      - '.github/workflows/clean-copy-windows-setup.yml'
+  workflow_dispatch: {}
+permissions:
+  contents: read
+jobs:
+  setup:
+    runs-on: windows-latest
+    timeout-minutes: 50
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: A3 tools
+        run: |
+          $ci = "--source", "winget", "--accept-source-agreements", "--accept-package-agreements", "--disable-interactivity"   # CI only
+          foreach ($id in "Python.Python.3.13", "tesseract-ocr.tesseract", "QPDF.QPDF", "OliverBetz.ExifTool", "7zip.7zip") {
+            winget install -e --scope machine --id $id @ci | Select-Object -Last 1
+            # -1978335189: already installed (7-Zip is on the runner image)
+            if ($LASTEXITCODE -ne 0 -and $LASTEXITCODE -ne -1978335189) { throw "winget $id failed: $LASTEXITCODE" }
+          }
+          # MSYS2 is on the runner image in C:\msys64, where winget's MSYS2.MSYS2 installs it
+          C:\msys64\usr\bin\bash.exe -lc "pacman -Syu --noconfirm" | Select-Object -Last 1
+          C:\msys64\usr\bin\bash.exe -lc "pacman -Syu --noconfirm" | Select-Object -Last 1
+          C:\msys64\usr\bin\bash.exe -lc "pacman -S --needed --noconfirm mingw-w64-ucrt-x86_64-poppler mingw-w64-ucrt-x86_64-libpst mingw-w64-ucrt-x86_64-antiword" | Select-Object -Last 1
+          if ($LASTEXITCODE -ne 0) { throw "pacman failed" }
+          $tools = "C:\Program Files\Tesseract-OCR", "C:\Program Files\7-Zip", "C:\Program Files\qpdf*\bin", "C:\Program Files\ExifTool", "C:\msys64\ucrt64\bin" | Resolve-Path -ErrorAction SilentlyContinue | ForEach-Object Path
+          [Environment]::SetEnvironmentVariable("Path", [Environment]::GetEnvironmentVariable("Path", "User") + ";" + ($tools -join ";"), "User")
+          "added to PATH: $($tools -join ' | ')"
+          if ($tools.Count -ne 5) { throw "expected 5 tool folders" }
+          foreach ($l in "deu", "fra") { curl.exe -fsSL -o "C:\Program Files\Tesseract-OCR\tessdata\$l.traineddata" "https://github.com/tesseract-ocr/tessdata_fast/raw/4.1.0/$l.traineddata" }
+      - name: A3 Codex in Windows PowerShell 5.1 with the default script policy of Windows 10 and 11
+        shell: powershell
+        run: |
+          Set-ExecutionPolicy -Scope Process Restricted -Force
+          $env:Path = [Environment]::GetEnvironmentVariable("Path", "Machine") + ";" + [Environment]::GetEnvironmentVariable("Path", "User")
+          npm.cmd install -g @openai/codex | Select-Object -Last 1
+          if ($LASTEXITCODE -ne 0) { throw "npm.cmd failed" }
+          codex.cmd --version
+          if ($LASTEXITCODE -ne 0) { throw "codex.cmd failed" }
+      - name: A3 run folder and a source drive
+        run: |
+          # A new PowerShell window reads PATH again; this step does the same.
+          $env:Path = [Environment]::GetEnvironmentVariable("Path", "Machine") + ";" + [Environment]::GetEnvironmentVariable("Path", "User")
+          mkdir C:\clean-copy-run; cd C:\clean-copy-run
+          $python = (Get-ItemProperty "HKLM:\SOFTWARE\Python\PythonCore\3.13\InstallPath").ExecutablePath
+          & $python -m venv .venv
+          .venv\Scripts\python.exe -m pip install -q pymupdf python-stdnum msoffcrypto-tool extract-msg py7zr "opencv-python-headless<5" xlrd olefile
+          if ($LASTEXITCODE -ne 0) { throw "pip failed" }
+          New-Item -ItemType Directory -Force .agents\skills | Out-Null
+          Copy-Item -Recurse "$env:GITHUB_WORKSPACE\skills\tgdc-clean-copy" .agents\skills\tgdc-clean-copy
+          Copy-Item "$env:GITHUB_WORKSPACE\.github\clean-copy\sandbox_probe.py" .     # the sandbox cannot read the checkout on D:
+          New-Item -ItemType Directory -Force C:\Archiv\Projekte, "$env:USERPROFILE\Documents\Archiv" | Out-Null
+          $make = @'
+          import sys, pymupdf
+          from pathlib import Path
+          for folder in map(Path, sys.argv[1:]):
+              with pymupdf.open() as doc:
+                  page = doc.new_page(width=842, height=595)
+                  for i, line in enumerate(["P<UTOERIKSSON<<ANNA<MARIA<<<<<<<<<<<<<<<<<<<", "L898902C36UTO7408122F1204159ZE184226B<<<<<10"]):
+                      page.insert_text((40, 300 + 34 * i), line, fontname="cour", fontsize=22)
+                  doc.save(str(folder / "Ausweis.pdf"))
+              (folder / "Lohn.csv").write_bytes("Name;Gehalt\r\nGroß;4200\r\n".encode("cp1252"))
+          '@
+          $make | Out-File -Encoding utf8 "$env:RUNNER_TEMP\make.py"
+          .venv\Scripts\python.exe "$env:RUNNER_TEMP\make.py" C:\Archiv "$env:USERPROFILE\Documents\Archiv"
+          "Bericht" | Out-File -Encoding utf8 "C:\Archiv\Projekte\Prüfbericht.txt"
+          New-SmbShare -Name Archiv -Path C:\Archiv -ReadAccess Everyone | Out-Null
+      - name: A4 local copy of a network share
+        run: |
+          robocopy \\localhost\Archiv C:\clean-copy-source /E /COPY:DAT /DCOPY:DAT /XJ /R:1 /W:1 /MT:8 /NFL /NDL /NP | Select-Object -Last 8
+          if ($LASTEXITCODE -ge 8) { throw "robocopy failed: $LASTEXITCODE" }
+          $copied = Get-Item C:\clean-copy-source\Projekte\Prüfbericht.txt
+          if ($copied.LastWriteTime -ne (Get-Item C:\Archiv\Projekte\Prüfbericht.txt).LastWriteTime) { throw "modification time not kept" }
+          $global:LASTEXITCODE = 0
+      - name: Phase 0 probes in the elevated Codex sandbox
+        working-directory: C:\clean-copy-run
+        run: |
+          $env:Path = [Environment]::GetEnvironmentVariable("Path", "Machine") + ";" + [Environment]::GetEnvironmentVariable("Path", "User")
+          $probe = "sandbox_probe.py", ".agents\skills\tgdc-clean-copy\scripts"
+          $out = codex.cmd -c windows.sandbox=elevated sandbox -P :workspace -- C:\clean-copy-run\.venv\Scripts\python.exe $probe $env:USERPROFILE C:\clean-copy-source C:\Archiv
+          $out
+          if ($LASTEXITCODE -ne 0) { throw "a write outside the run folder or a network request succeeded, or a local source was unreadable" }
+          foreach ($tool in "tesseract", "pdftotext", "pdftoppm", "qpdf", "exiftool", "7z", "readpst", "antiword") {
+            if (-not ($out -match "^tool_$tool runs:")) { throw "$tool does not run in the sandbox" }
+          }
+          if (-not ($out -match "^tool_tesseract .*deu")) { throw "the extra OCR language is missing" }
+          if (-not ($out -match "^id_signals.py .*P4_files=1") -or -not ($out -match "^table_signals.py .*P1_files=1")) { throw "a detector failed" }
+          # Documented limits: the sandbox does not read network shares, and its access to the user's own folders
+          # varies (in one run a folder in Documents could not be listed, in the next its files could not be read).
+          $limits = codex.cmd -c windows.sandbox=elevated sandbox -P :workspace -- C:\clean-copy-run\.venv\Scripts\python.exe $probe $env:USERPROFILE \\localhost\Archiv "$env:USERPROFILE\Documents\Archiv"
+          $limits
+          if (-not ($limits -match "^source0_entries error")) { throw "the sandbox now reads network shares; update the operator guide" }
+          $global:LASTEXITCODE = 0
+      - name: Detector tests in the elevated Codex sandbox
+        working-directory: C:\clean-copy-run
+        run: |
+          $env:Path = [Environment]::GetEnvironmentVariable("Path", "Machine") + ";" + [Environment]::GetEnvironmentVariable("Path", "User")
+          codex.cmd -c windows.sandbox=elevated sandbox -P :workspace -- C:\clean-copy-run\.venv\Scripts\python.exe -m unittest discover -s .agents\skills\tgdc-clean-copy\tests -v
+          if ($LASTEXITCODE -ne 0) { throw "detector tests failed in the sandbox" }
+      - name: A4 cleanup after the run
+        run: |
+          codex.cmd sandbox uninstall
+          if ($LASTEXITCODE -ne 0) { throw "codex sandbox uninstall failed" }
+          $left = @(Get-LocalUser | Where-Object Name -like 'CodexSandbox*')
+          if ($left.Count) { throw "sandbox accounts left: $($left.Name -join ', ')" }
+          "sandbox accounts removed"

@@ -1,6 +1,9 @@
 """Find tables of people and pay tables in spreadsheets and CSV files, hidden sheets included.
 
-Input:  a TSV file with one "<id><TAB><absolute path>" per line (.xlsx, .xlsm, .xls, .csv, .tsv).
+Input:  a UTF-8 TSV file with one "<id><TAB><absolute path>" per line (.xlsx, .xlsm, .xls, .csv, .tsv).
+        A list that PowerShell wrote in UTF-16 or in the Windows code page is read as well.
+        CSV files are read as UTF-8, UTF-16 with a byte order mark, or else Windows-1252 (Excel on
+        Windows in Western Europe and the Americas), the same on every operating system.
 Output: a CSV with one row per sheet: id, sheet, hidden, rows, person_cols, strong_cols, pay_cols,
         company_cols, hint. hint is P1 (named persons with pay data), P7 (rows are private
         individuals with private data), review, or empty.
@@ -9,6 +12,8 @@ Stdout: counts only. Errors go to the log file by id, never with paths or conten
 Usage:  python table_signals.py INPUT.tsv OUTPUT.csv LOGFILE
 """
 import csv
+import locale
+import os
 import re
 import sys
 import unicodedata
@@ -32,8 +37,38 @@ PAY = ["gehalt", "lohn", "brutto", "netto", "salary", "gross", "net pay", "wage"
        "wages", "pay rate", "hourly rate", "compensation", "withholding", "filing status", "fica"]
 COMPANY = ["firma", "company", "unternehmen", "kunde (firma)", "empresa", "razao social", "societe", "firma nazwa",
            "bedrijf", "supplier", "lieferant", "ust-id", "vat", "account name"]
+WINDOWS = os.name == "nt"
+UTF8_SEQUENCE = re.compile(rb"[\xc2-\xdf][\x80-\xbf]|[\xe0-\xef][\x80-\xbf]{2}|[\xf0-\xf4][\x80-\xbf]{3}")
 NS = {"m": "http://schemas.openxmlformats.org/spreadsheetml/2006/main",
       "r": "http://schemas.openxmlformats.org/officeDocument/2006/relationships"}
+
+
+def native(path):
+    """The path as the OS opens it. On Windows an extended-length path, so that paths longer than 260
+    characters on local disks, mapped drives and network shares open without the long-path setting."""
+    path = str(path)
+    if not WINDOWS:
+        return path
+    path = path.replace("/", "\\")
+    if path.startswith(("\\\\?\\", "\\\\.\\")):          # already extended, or a device path
+        return path
+    path = os.path.abspath(path)
+    return "\\\\?\\UNC\\" + path[2:] if path.startswith("\\\\") else "\\\\?\\" + path
+
+
+def decode(data, fallback):
+    """Text from bytes: UTF-16 with a byte order mark, UTF-8 with or without one, else the fallback code page.
+    A file that is mostly UTF-8 with a few stray bytes (for example two exports joined) stays UTF-8."""
+    if data.startswith((b"\xff\xfe", b"\xfe\xff")):
+        return data.decode("utf-16", errors="replace")
+    try:
+        return data.decode("utf-8-sig")
+    except UnicodeDecodeError:
+        in_sequences = sum(len(match) for match in UTF8_SEQUENCE.findall(data))
+        stray = sum(byte >= 0x80 for byte in data) - in_sequences
+        if in_sequences > stray:
+            return data.decode("utf-8-sig", errors="replace")
+        return data.decode(fallback, errors="replace")
 
 
 def fold(text):
@@ -80,7 +115,7 @@ def xls_sheets(path):
 
 
 def csv_sheets(path):
-    text = Path(path).read_text(errors="ignore")
+    text = decode(Path(path).read_bytes(), "cp1252")
     dialect = csv.Sniffer().sniff(text[:4096]) if text.strip() else csv.excel
     yield "csv", False, list(csv.reader(text.splitlines(), dialect))
 
@@ -108,10 +143,10 @@ def main():
     src, out, log = Path(sys.argv[1]), Path(sys.argv[2]), Path(sys.argv[3])
     counts = {"files": 0, "sheets": 0, "P1_files": 0, "P7_files": 0, "review_files": 0, "errors": 0}
     fields = ["id", "sheet", "hidden", "rows", "person_cols", "strong_cols", "pay_cols", "company_cols", "hint"]
-    with open(out, "w", newline="") as fo, open(log, "a") as lg:
+    with open(out, "w", newline="", encoding="utf-8") as fo, open(log, "a", encoding="utf-8") as lg:
         writer = csv.DictWriter(fo, fieldnames=fields)
         writer.writeheader()
-        for line in src.read_text().splitlines():
+        for line in decode(Path(native(src)).read_bytes(), locale.getpreferredencoding(False)).splitlines():
             if "\t" not in line:
                 continue
             fid, p = line.split("\t", 1)
@@ -123,7 +158,7 @@ def main():
             counts["files"] += 1
             hints = set()
             try:
-                for i, (name, hidden, rows) in enumerate(reader(p), start=1):
+                for i, (name, hidden, rows) in enumerate(reader(native(p)), start=1):
                     row = classify(rows)
                     counts["sheets"] += 1
                     hints.add(row["hint"])

@@ -2,10 +2,10 @@
 name: tgdc-clean-copy
 description: Builds a screened clean copy of a company drive for The General Data Company (TGDC). Inventories every file, excludes files whose primary content is personal data (payroll, personnel records, health, ID documents, applications, private correspondence) and non-disclosure agreements, copies every other file byte for byte with SHA-256 verification, and writes a count-only run report and an attestation draft. Runs on the data owner's machine with operator checkpoints. Use when the user asks to run or resume the TGDC clean copy, or to screen a drive before sharing data with TGDC.
 license: Apache-2.0
-compatibility: Local coding agent with a shell, started in a dedicated run folder outside the source drive. Needs Python 3.10 or newer with assets/requirements.txt, plus tesseract, poppler, qpdf, exiftool, 7-Zip, and readpst. macOS, Linux, or Windows through WSL2. Network is needed only for setup and must be off during the run.
+compatibility: Local coding agent with a shell, started in a dedicated run folder outside the source drive. Needs Python 3.10 or newer with assets/requirements.txt, plus tesseract, poppler, qpdf, exiftool, 7-Zip, and readpst. macOS, Linux, or Windows (natively with Codex in its elevated Windows sandbox, or with any sandboxed agent inside WSL2). Network is needed only for setup and must be off during the run.
 metadata:
   author: The General Data Company
-  version: "1.4.0"
+  version: "1.5.0"
   homepage: https://thegeneraldata.com
 ---
 
@@ -19,6 +19,7 @@ You build `clean-copy/` in the run folder: an unchanged copy of every file on th
 - **Section labels** used in all files: A1 to A6 are in `references/operator-guide.md`; B1 to B3 and B11 are below; B4 and B10 are in `references/config-and-artifacts.md`; B5 and B6 in `references/exclusion-policy.md`; B7 and B9 in `references/phases.md`; B8 in `references/detection.md`.
 - **Templates:** `assets/claude-settings.json` (settings for Claude Code, see A4) and `assets/requirements.txt` (Python packages, see A3).
 - **Scripts:** `scripts/id_signals.py` (identity documents) and `scripts/table_signals.py` (tables of people and pay tables), both required in Phase 4. Run them; never edit or replace them.
+- **Tests:** `tests/` checks the scripts and the sandbox for developers of this skill. It is not part of a run.
 
 ## Every session starts here
 

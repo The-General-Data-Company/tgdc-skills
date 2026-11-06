@@ -17,7 +17,7 @@ What this step does not do: it does not anonymize the files it keeps. Business r
 3. **Source protection.** Run on a snapshot, a read-only mount, or with a read-only user account. The agent protects the source anyway, but a second layer is cheap. On a live share, edits by colleagues during the run will stop it.
 4. **Disk space.** Free space on the run disk of at least the drive size plus 20 percent.
 5. **Online-only files.** If the drive is OneDrive, SharePoint, Google Drive for desktop, Dropbox, or iCloud, download online-only files before the run. The agent never triggers downloads; it lists files that are still online-only and leaves them out.
-6. **Time.** Plan for an interview at the start, a pilot check and a review list in the middle, and a quality check at the end (A5). The scanning in between runs by itself and can take many hours on large drives (scanned PDFs need OCR). Keep the computer awake (macOS: `caffeinate -i`).
+6. **Time.** Plan for an interview at the start, a pilot check and a review list in the middle, and a quality check at the end (A5). The scanning in between runs by itself and can take many hours on large drives (scanned PDFs need OCR). Keep the computer awake (macOS: `caffeinate -i`; Windows: Settings, System, Power, sleep set to Never while the run lasts).
 
 ## A3. Install the tools (once, with internet)
 
@@ -31,13 +31,48 @@ Linux (Debian or Ubuntu):
 ```
 sudo apt install python3-venv tesseract-ocr tesseract-ocr-all poppler-utils qpdf libimage-exiftool-perl p7zip-full pst-utils catdoc bubblewrap socat
 ```
-Windows: use WSL2 with Ubuntu for either tool and follow the Linux line. Map network shares to a drive letter first. On macOS, legacy `.doc` files are read with the built-in `textutil`.
+Windows (PowerShell; `winget` is part of Windows 10 and 11). Install everything for all users (`--scope machine`), because the sandbox accounts of Codex (A4) cannot read programs installed only for you. MSYS2 provides `pdftotext` and `pdftoppm` (poppler), `readpst`, and `antiword`; Windows has no other package for the last two:
+```
+winget install -e --scope machine --id Python.Python.3.13
+winget install -e --scope machine --id tesseract-ocr.tesseract
+winget install -e --scope machine --id QPDF.QPDF
+winget install -e --scope machine --id OliverBetz.ExifTool
+winget install -e --scope machine --id 7zip.7zip
+winget install -e --scope machine --id MSYS2.MSYS2
+winget install -e --scope machine --id OpenJS.NodeJS.LTS
+C:\msys64\usr\bin\bash.exe -lc "pacman -Syu --noconfirm"
+C:\msys64\usr\bin\bash.exe -lc "pacman -Syu --noconfirm"
+C:\msys64\usr\bin\bash.exe -lc "pacman -S --needed --noconfirm mingw-w64-ucrt-x86_64-poppler mingw-w64-ucrt-x86_64-libpst mingw-w64-ucrt-x86_64-antiword"
+```
+`pacman -Syu` runs twice because the first run can update MSYS2 itself and stop there. These installs and the first start of Codex (A4) need administrator approval once; without administrator rights, ask your IT team to do both.
 
-Then create the run folder and its Python environment. The run folder must be on a local disk and must be outside the source drive.
+Most of these installers do not put their tools on PATH. Add them once:
+```
+$tools = "C:\Program Files\Tesseract-OCR", "C:\Program Files\7-Zip", "C:\Program Files\qpdf*\bin", "C:\Program Files\ExifTool", "C:\msys64\ucrt64\bin" | Resolve-Path -ErrorAction SilentlyContinue | ForEach-Object Path
+[Environment]::SetEnvironmentVariable("Path", [Environment]::GetEnvironmentVariable("Path", "User") + ";" + ($tools -join ";"), "User")
+```
+Then open a new PowerShell window, which reads the new PATH, and install Codex, the agent that runs natively on Windows (A4). Call `npm.cmd` and later `codex.cmd` with their extension, because Windows blocks PowerShell scripts such as `npm.ps1` by default:
+```
+npm.cmd install -g @openai/codex
+```
+The Windows installer of tesseract includes English only. For every other language on the drive, download its model into the `tessdata` folder, in a PowerShell window opened as administrator (Tesseract codes, for example `deu`, `fra`, `spa`, `por`, `pol`, `nld`):
+```
+foreach ($l in "deu", "fra") { curl.exe -fsSL -o "C:\Program Files\Tesseract-OCR\tessdata\$l.traineddata" "https://github.com/tesseract-ocr/tessdata_fast/raw/4.1.0/$l.traineddata" }
+```
+Alternatively, run either agent inside WSL2 with Ubuntu and follow the Linux line; Claude Code needs this on Windows (A4). Inside WSL2, map network shares to a drive letter first. On macOS, legacy `.doc` files are read with the built-in `textutil`; on Windows with `antiword`.
+
+Then create the run folder and its Python environment. The run folder must be on a local disk and must be outside the source drive. On Windows it must also be outside OneDrive and other synced folders (Desktop and Documents are often inside OneDrive).
 ```
 mkdir clean-copy-run && cd clean-copy-run
 python3 -m venv .venv
 .venv/bin/pip install pymupdf python-stdnum msoffcrypto-tool extract-msg py7zr "opencv-python-headless<5" xlrd olefile
+```
+Windows (PowerShell):
+```
+mkdir C:\clean-copy-run; cd C:\clean-copy-run
+$python = (Get-ItemProperty "HKLM:\SOFTWARE\Python\PythonCore\3.13\InstallPath").ExecutablePath
+& $python -m venv .venv
+.venv\Scripts\python.exe -m pip install pymupdf python-stdnum msoffcrypto-tool extract-msg py7zr "opencv-python-headless<5" xlrd olefile
 ```
 Then install the skill into the run folder, as described in the README (Claude Code: `.claude/skills/`; Codex and most other agents: `.agents/skills/`).
 
@@ -75,16 +110,30 @@ cd clean-copy-run
 claude --strict-mcp-config
 ```
 
+On Windows, Claude Code has no sandbox, and `failIfUnavailable` above makes it refuse to start. Run Claude Code inside WSL2 with Ubuntu, with the tools of the Linux line installed there, or use Codex.
+
 **Codex CLI.** Start Codex inside the run folder with network and web search off. Do not use `--add-dir` for the source.
 ```
 cd clean-copy-run
 codex --sandbox workspace-write --ask-for-approval on-request -c 'web_search="disabled"'
 ```
+**Codex on Windows** runs every command in its Windows sandbox. Use its `elevated` mode: commands run under separate low-privilege sandbox accounts that cannot write outside the run folder and have no network access. The first start asks once for administrator approval to create these accounts and their firewall rules. The `unelevated` mode does not block the network, so the safety check of Phase 0 would stop the run.
+```
+cd C:\clean-copy-run
+codex.cmd --sandbox workspace-write --ask-for-approval on-request -c web_search=disabled -c windows.sandbox=elevated
+```
+The sandbox reads folders on local disks and USB disks. It does not read network shares, because its firewall rules also block traffic to file servers, and its access to your own user folder (Desktop, Documents, Downloads, OneDrive) is not reliable. If the drive is on a file server or a NAS, or the files are in your user folder, copy them to a folder on a local disk first and give the agent the copy as the source drive (for a user folder, put its path in place of `\\server\share`). The copy is also the snapshot of A2, and the free space must cover it as well:
+```
+robocopy \\server\share C:\clean-copy-source /E /COPY:DAT /DCOPY:DAT /XJ /R:1 /W:1 /MT:8 /NFL /NDL /NP
+```
+Robocopy ends with a summary table. An exit code of 8 or higher, or a number above 0 in its FAILED column, means files are missing from the copy: fix the cause and run the command again before you start the agent. Copying from OneDrive or another sync folder downloads its online-only files, which is what you want here.
+
+After the run, `codex.cmd sandbox uninstall` removes the sandbox accounts and firewall rules.
 If `codex mcp list` shows enabled MCP servers, switch each one off for this run by adding `-c mcp_servers.<name>.enabled=false` (they run outside the sandbox). For a fully local run, add `--oss` (requires Ollama with a capable model installed). Then document content never leaves your machine.
 
 During the run, deny every request to run a command outside the sandbox or to allow a network domain. One approval would defeat the safety checks.
 
-If your agent has personal global instructions or memory, keep them out of this run. For Codex, start it with a clean home that holds only your login: `mkdir -p ~/.codex-clean && ln -s ~/.codex/auth.json ~/.codex-clean/auth.json`, then prefix the start command with `CODEX_HOME=~/.codex-clean`.
+If your agent has personal global instructions or memory, keep them out of this run. For Codex, start it with a clean home that holds only your login: `mkdir -p ~/.codex-clean && ln -s ~/.codex/auth.json ~/.codex-clean/auth.json`, then prefix the start command with `CODEX_HOME=~/.codex-clean`. On Windows, in PowerShell: `mkdir $HOME\.codex-clean; Copy-Item $HOME\.codex\auth.json $HOME\.codex-clean\; $env:CODEX_HOME = "$HOME\.codex-clean"`, then start Codex in the same window. After the run, run `codex.cmd sandbox uninstall` in that window, then delete `.codex-clean`.
 
 **First message:** in Claude Code `/tgdc-clean-copy The source drive is: <absolute path>`; in Codex `$tgdc-clean-copy The source drive is: <absolute path>`; in other agents `Use the tgdc-clean-copy skill. The source drive is: <absolute path>`.
 
@@ -98,4 +147,4 @@ If your agent has personal global instructions or memory, keep them out of this 
 
 ## A6. What to share
 
-Share only `clean-copy/` and `report/`, and only after a data processing agreement with The General Data Company is signed. Never share `_private/`. To package on a Mac, use `COPYFILE_DISABLE=1 zip -r -X clean-copy.zip clean-copy report` (Finder's Compress adds hidden files). After the run, the agent tells you which folders hold extracted text and how to delete them, and where your agent tool keeps its local session logs (Claude Code: `~/.claude/projects/`; Codex: `~/.codex/`). Those logs contain what the agent saw.
+Share only `clean-copy/` and `report/`, and only after a data processing agreement with The General Data Company is signed. Never share `_private/`. To package on a Mac, use `COPYFILE_DISABLE=1 zip -r -X clean-copy.zip clean-copy report` (Finder's Compress adds hidden files). On Windows, use 7-Zip: `& "C:\Program Files\7-Zip\7z.exe" a -tzip -mcu=on clean-copy.zip clean-copy report` (`-mcu=on` stores file names in UTF-8, so they arrive intact on every system). After the run, the agent tells you which folders hold extracted text and how to delete them, and where your agent tool keeps its local session logs (Claude Code: `~/.claude/projects/`; Codex: `~/.codex/`, on Windows `%USERPROFILE%\.codex\`). Those logs contain what the agent saw.

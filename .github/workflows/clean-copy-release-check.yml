@@ -1,0 +1,67 @@
+name: clean-copy-release-check
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Release tag to check, for example v1.5.0
+        required: true
+permissions:
+  contents: read
+jobs:
+  install:
+    name: ${{ matrix.os }} / Python ${{ matrix.python }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest, macos-latest]
+        python: ['3.10', '3.15']
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+          allow-prereleases: true
+      - name: Download and verify as the README says (macOS, Linux)
+        if: runner.os != 'Windows'
+        shell: bash
+        env:
+          V: ${{ inputs.version }}
+        run: |
+          curl -fsSLO https://github.com/The-General-Data-Company/tgdc-skills/releases/download/$V/tgdc-clean-copy-$V.tar.gz
+          curl -fsSLO https://github.com/The-General-Data-Company/tgdc-skills/releases/download/$V/SHA256SUMS
+          if command -v shasum >/dev/null; then shasum -a 256 -c SHA256SUMS --ignore-missing; else sha256sum -c SHA256SUMS --ignore-missing; fi
+          mkdir -p skills && tar -xzf tgdc-clean-copy-$V.tar.gz -C skills
+      - name: Download and verify as the README says (Windows)
+        if: runner.os == 'Windows'
+        shell: powershell
+        env:
+          V: ${{ inputs.version }}
+        run: |
+          $V = $env:V
+          $R = "https://github.com/The-General-Data-Company/tgdc-skills/releases/download/$V"
+          curl.exe -fsSLO "$R/tgdc-clean-copy-$V.tar.gz"
+          curl.exe -fsSLO "$R/SHA256SUMS"
+          $expected = (@(Get-Content SHA256SUMS) -match "tgdc-clean-copy-$V.tar.gz")[0].Split(" ")[0]
+          if ((Get-FileHash "tgdc-clean-copy-$V.tar.gz" -Algorithm SHA256).Hash -ne $expected) { throw "Checksum mismatch" } else {
+            New-Item -ItemType Directory -Force skills | Out-Null; tar -xzf "tgdc-clean-copy-$V.tar.gz" -C skills }
+      - name: The released skill names its version
+        shell: bash
+        run: |
+          V=${{ inputs.version }}
+          grep -q "version: \"${V#v}\"" skills/tgdc-clean-copy/SKILL.md
+      - name: Tesseract
+        shell: bash
+        run: |
+          case "$RUNNER_OS" in
+            Linux) sudo apt-get update -q && sudo apt-get install -y -q tesseract-ocr ;;
+            macOS) HOMEBREW_NO_AUTO_UPDATE=1 brew install tesseract ;;
+            Windows) choco install tesseract -y --no-progress ;;
+          esac
+      - name: Detector tests from the released files
+        shell: bash
+        env:
+          PYTHONUTF8: '0'
+        run: |
+          python -m pip install --index-url https://pypi.org/simple --requirement skills/tgdc-clean-copy/assets/requirements.txt
+          python -m unittest discover -s skills/tgdc-clean-copy/tests -v

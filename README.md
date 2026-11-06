@@ -43,24 +43,62 @@ Linux (Debian or Ubuntu):
 ```sh
 sudo apt install python3-venv tesseract-ocr tesseract-ocr-all poppler-utils qpdf libimage-exiftool-perl p7zip-full pst-utils catdoc bubblewrap socat
 ```
-Windows: use WSL2 with Ubuntu and follow the Linux line.
+Windows (PowerShell). Install for all users (`--scope machine`), because the sandbox accounts of Codex cannot read programs installed only for you. MSYS2 provides poppler, `readpst`, and `antiword`; `pacman -Syu` runs twice because the first run can update MSYS2 itself and stop there. These installs and the first start of Codex need administrator approval once:
+```powershell
+winget install -e --scope machine --id Python.Python.3.13
+winget install -e --scope machine --id tesseract-ocr.tesseract
+winget install -e --scope machine --id QPDF.QPDF
+winget install -e --scope machine --id OliverBetz.ExifTool
+winget install -e --scope machine --id 7zip.7zip
+winget install -e --scope machine --id MSYS2.MSYS2
+winget install -e --scope machine --id OpenJS.NodeJS.LTS
+C:\msys64\usr\bin\bash.exe -lc "pacman -Syu --noconfirm"
+C:\msys64\usr\bin\bash.exe -lc "pacman -Syu --noconfirm"
+C:\msys64\usr\bin\bash.exe -lc "pacman -S --needed --noconfirm mingw-w64-ucrt-x86_64-poppler mingw-w64-ucrt-x86_64-libpst mingw-w64-ucrt-x86_64-antiword"
+```
+Then put the tools on your PATH:
+```powershell
+$tools = "C:\Program Files\Tesseract-OCR", "C:\Program Files\7-Zip", "C:\Program Files\qpdf*\bin", "C:\Program Files\ExifTool", "C:\msys64\ucrt64\bin" | Resolve-Path -ErrorAction SilentlyContinue | ForEach-Object Path
+[Environment]::SetEnvironmentVariable("Path", [Environment]::GetEnvironmentVariable("Path", "User") + ";" + ($tools -join ";"), "User")
+```
+Open a new PowerShell window, which reads the new PATH, and install Codex, the agent that runs natively on Windows. Call `npm.cmd` and later `codex.cmd` with their extension, because Windows blocks PowerShell scripts such as `npm.ps1` by default:
+```powershell
+npm.cmd install -g @openai/codex
+```
+The Windows installer of tesseract includes English only. Section A3 of the [operator guide](skills/tgdc-clean-copy/references/operator-guide.md) shows how to add the other languages of your drive. You can also run the agent inside WSL2 with Ubuntu and follow the Linux line; Claude Code needs this on Windows, because it has no sandbox there.
 
-**2. Run folder and Python packages** (on a local disk, outside the drive you screen)
+**2. Run folder and Python packages** (on a local disk, outside the drive you screen; on Windows also outside OneDrive)
 ```sh
 mkdir clean-copy-run && cd clean-copy-run
 python3 -m venv .venv
 .venv/bin/pip install pymupdf python-stdnum msoffcrypto-tool extract-msg py7zr "opencv-python-headless<5" xlrd olefile
 ```
+Windows (PowerShell):
+```powershell
+mkdir C:\clean-copy-run; cd C:\clean-copy-run
+$python = (Get-ItemProperty "HKLM:\SOFTWARE\Python\PythonCore\3.13\InstallPath").ExecutablePath
+& $python -m venv .venv
+.venv\Scripts\python.exe -m pip install pymupdf python-stdnum msoffcrypto-tool extract-msg py7zr "opencv-python-headless<5" xlrd olefile
+```
 
 **3. The skill** (inside `clean-copy-run/`; download a pinned release and verify its checksum)
 ```sh
-V=v1.4.0
+V=v1.5.0
 curl -fsSLO https://github.com/The-General-Data-Company/tgdc-skills/releases/download/$V/tgdc-clean-copy-$V.tar.gz
 curl -fsSLO https://github.com/The-General-Data-Company/tgdc-skills/releases/download/$V/SHA256SUMS
 shasum -a 256 -c SHA256SUMS --ignore-missing
 mkdir -p <FOLDER> && tar -xzf tgdc-clean-copy-$V.tar.gz -C <FOLDER>
 ```
-On Linux, use `sha256sum` instead of `shasum -a 256`.
+On Linux, use `sha256sum` instead of `shasum -a 256`. On Windows, in PowerShell:
+```powershell
+$V = "v1.5.0"
+$R = "https://github.com/The-General-Data-Company/tgdc-skills/releases/download/$V"
+curl.exe -fsSLO "$R/tgdc-clean-copy-$V.tar.gz"
+curl.exe -fsSLO "$R/SHA256SUMS"
+$expected = (@(Get-Content SHA256SUMS) -match "tgdc-clean-copy-$V.tar.gz")[0].Split(" ")[0]
+if ((Get-FileHash "tgdc-clean-copy-$V.tar.gz" -Algorithm SHA256).Hash -ne $expected) { throw "Checksum mismatch" } else {
+  New-Item -ItemType Directory -Force <FOLDER> | Out-Null; tar -xzf "tgdc-clean-copy-$V.tar.gz" -C <FOLDER> }
+```
 
 | Agent | `<FOLDER>` | Start the skill |
 |---|---|---|
@@ -79,7 +117,13 @@ Codex:
 ```sh
 codex --sandbox workspace-write --ask-for-approval on-request -c 'web_search="disabled"'
 ```
-If `codex mcp list` shows enabled MCP servers, add `-c mcp_servers.<name>.enabled=false` for each one. If you use a personal `~/.codex/AGENTS.md` or memories, start Codex with a clean home that holds only your login: `mkdir -p ~/.codex-clean && ln -s ~/.codex/auth.json ~/.codex-clean/auth.json`, then prefix the command with `CODEX_HOME=~/.codex-clean`.
+Codex on Windows, in its elevated sandbox (the first start asks once for administrator approval to create the sandbox accounts and their firewall rules; `codex.cmd sandbox uninstall` removes them after the run):
+```powershell
+codex.cmd --sandbox workspace-write --ask-for-approval on-request -c web_search=disabled -c windows.sandbox=elevated
+```
+This sandbox reads folders on local disks and USB disks. It does not read network shares, and its access to your own user folder (Desktop, Documents, OneDrive) is not reliable. If the drive is on a file server or a NAS, or the files are in your user folder, copy them to a local disk first and name the copy as the source drive: `robocopy \\server\share C:\clean-copy-source /E /COPY:DAT /DCOPY:DAT /XJ /R:1 /W:1 /MT:8 /NFL /NDL /NP`. An exit code of 8 or higher, or a number above 0 in the FAILED column of its summary, means files are missing from the copy; fix that before you start.
+
+If `codex mcp list` shows enabled MCP servers, add `-c mcp_servers.<name>.enabled=false` for each one. If you use a personal `~/.codex/AGENTS.md` or memories, start Codex with a clean home that holds only your login: `mkdir -p ~/.codex-clean && ln -s ~/.codex/auth.json ~/.codex-clean/auth.json`, then prefix the command with `CODEX_HOME=~/.codex-clean`. On Windows, in PowerShell: `mkdir $HOME\.codex-clean; Copy-Item $HOME\.codex\auth.json $HOME\.codex-clean\; $env:CODEX_HOME = "$HOME\.codex-clean"`, then start Codex in the same window; after the run, run `codex.cmd sandbox uninstall` there and delete `.codex-clean`.
 
 Never pass the drive with `--add-dir`, and deny any request to run outside the sandbox or to allow a network domain during the run.
 
