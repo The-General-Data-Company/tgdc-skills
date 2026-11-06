@@ -8,6 +8,7 @@ from pathlib import Path
 # Hosts may run this script with `python -I`, which leaves the script folder off the import path.
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+import portable
 from profiler import DEFAULT_LIMITS, UnsupportedPlatform, profile
 
 
@@ -72,7 +73,7 @@ def main(argv=None):
         except Exception:
             print('Rendering failed safely; no input diagnostics are displayed.', file=sys.stderr)
             return 1
-        print(f'PDF written to {output.absolute()}')
+        print(f'PDF written to {portable.plain(output.absolute())}')
         print('Review the PDF preview before sharing voluntarily. Provider answers may contain confidential information; the report is not certified as sanitized.')
         return 0
     if arguments.command == 'spec':
