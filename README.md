@@ -173,7 +173,7 @@ Reads files and folders you select on your own machine and builds one reviewable
 
 **1. The skill** (download a pinned release and verify its checksum)
 ```sh
-V=1.2.0
+V=1.2.1
 R=https://github.com/The-General-Data-Company/tgdc-skills/releases/download/tgdc-data-card-v$V
 curl -fsSLO $R/tgdc-data-card-v$V.tar.gz
 curl -fsSLO $R/SHA256SUMS
@@ -181,7 +181,7 @@ shasum -a 256 -c SHA256SUMS --ignore-missing && mkdir -p <FOLDER> && tar -xzf tg
 ```
 On Linux, use `sha256sum` instead of `shasum -a 256`. On Windows, in PowerShell:
 ```powershell
-$V = "1.2.0"
+$V = "1.2.1"
 $R = "https://github.com/The-General-Data-Company/tgdc-skills/releases/download/tgdc-data-card-v$V"
 curl.exe -fsSLO "$R/tgdc-data-card-v$V.tar.gz"
 curl.exe -fsSLO "$R/SHA256SUMS"
