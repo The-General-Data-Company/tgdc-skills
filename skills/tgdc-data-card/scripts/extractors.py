@@ -125,22 +125,22 @@ class HTMLText(HTMLParser):
 @contextmanager
 def pdf_expansion_bounds(maximum):
     """Use pinned pypdf decoder limits and a cumulative compressed-stream budget."""
-    from pypdf import filters
+    from pypdf import apply_configuration, get_configuration
     from pypdf.errors import LimitReachedError
     from pypdf.generic import EncodedStreamObject
-    names = ('ZLIB_MAX_OUTPUT_LENGTH', 'LZW_MAX_OUTPUT_LENGTH',
-             'RUN_LENGTH_MAX_OUTPUT_LENGTH', 'JBIG2_MAX_OUTPUT_LENGTH',
-             'MAX_ARRAY_BASED_STREAM_OUTPUT_LENGTH', 'MAX_DECLARED_STREAM_LENGTH')
-    previous = {name: getattr(filters, name) for name in names}
+    names = ('zlib_maximum_output_length', 'lzw_maximum_output_length',
+             'run_length_maximum_output_length', 'jbig2_maximum_output_length',
+             'array_based_stream_maximum_output_length', 'maximum_declared_stream_length',
+             'brotli_maximum_output_length')
+    config = get_configuration()
+    bounds = {name: min(getattr(config, name), maximum) if getattr(config, name) else maximum
+              for name in names}
     original = EncodedStreamObject.get_data
     decoded_ids = set(); expanded = 0
 
     def bounded_data(stream):
         nonlocal expanded
-        try:
-            data = original(stream)
-        except LimitReachedError as error:
-            raise ParseLimit('PDF expansion cap') from error
+        data = original(stream)
         if id(stream) not in decoded_ids:
             expanded += len(data); decoded_ids.add(id(stream))
         if expanded > maximum:
@@ -148,14 +148,13 @@ def pdf_expansion_bounds(maximum):
         return data
 
     try:
-        for name, old in previous.items():
-            setattr(filters, name, min(old, maximum) if old else maximum)
         EncodedStreamObject.get_data = bounded_data
-        yield
+        with apply_configuration(disable_legacy_handling=True, **bounds):
+            yield
+    except LimitReachedError as error:
+        raise ParseLimit('PDF expansion cap') from error
     finally:
         EncodedStreamObject.get_data = original
-        for name, old in previous.items():
-            setattr(filters, name, old)
 
 
 def extract(extension, data, limits=None):

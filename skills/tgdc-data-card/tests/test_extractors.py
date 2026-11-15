@@ -7,7 +7,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'scripts'))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from extractors import extract, DEFAULT_LIMITS
+from extractors import extract, DEFAULT_LIMITS, pdf_expansion_bounds, ParseLimit
 from spec_samples import pdf_with_duplicate_keys
 
 
@@ -101,15 +101,71 @@ class ExtractorTests(unittest.TestCase):
 
 
 class AdditionalBoundsTests(unittest.TestCase):
-    def test_pdf_compressed_stream_expansion_is_capped(self):
+    @staticmethod
+    def text_pdf(*texts):
+        from pypdf import PdfWriter
+        from pypdf.generic import DecodedStreamObject, DictionaryObject, NameObject
+        writer = PdfWriter()
+        for text in texts:
+            page = writer.add_blank_page(width=100, height=100)
+            font = DictionaryObject({NameObject('/Type'): NameObject('/Font'),
+                                     NameObject('/Subtype'): NameObject('/Type1'),
+                                     NameObject('/BaseFont'): NameObject('/Helvetica')})
+            page[NameObject('/Resources')] = DictionaryObject({
+                NameObject('/Font'): DictionaryObject({NameObject('/F1'): writer._add_object(font)})})
+            stream = DecodedStreamObject()
+            stream.set_data(b'BT /F1 12 Tf 10 50 Td (' + text + b') Tj ET')
+            page[NameObject('/Contents')] = writer._add_object(stream.flate_encode())
+        buffer = io.BytesIO(); writer.write(buffer)
+        return buffer.getvalue()
+
+    def test_pdf_compressed_stream_expansion_is_capped_and_restored(self):
+        from pypdf import get_configuration
+        from pypdf.generic import EncodedStreamObject
+        config = get_configuration(); original = EncodedStreamObject.get_data
+        data = self.text_pdf(b'A' * 10000)
+        result = extract('pdf', data, {**DEFAULT_LIMITS, 'max_expanded_bytes': 1000})
+        self.assertEqual(result['status'], 'decompression_cap')
+        self.assertIs(get_configuration(), config)
+        self.assertIs(EncodedStreamObject.get_data, original)
+        self.assertEqual(extract('pdf', data)['status'], 'ok')
+        self.assertIs(get_configuration(), config)
+        self.assertIs(EncodedStreamObject.get_data, original)
+
+    def test_pdf_streams_share_one_expansion_budget(self):
+        data = self.text_pdf(b'A' * 600, b'B' * 600)
+        self.assertEqual(extract('pdf', data, {**DEFAULT_LIMITS, 'max_expanded_bytes': 1000})['status'], 'decompression_cap')
+        self.assertEqual(extract('pdf', data)['status'], 'ok')
+
+    def test_pdf_bounds_preserve_stricter_config_and_restore_after_reader_failure(self):
+        from pypdf import apply_configuration, get_configuration
+        from pypdf.errors import LimitReachedError
+        from pypdf.generic import EncodedStreamObject
+        original = EncodedStreamObject.get_data
+        with apply_configuration(zlib_maximum_output_length=50, brotli_maximum_output_length=0) as strict:
+            with self.assertRaises(ParseLimit):
+                with pdf_expansion_bounds(1000):
+                    self.assertEqual(get_configuration().zlib_maximum_output_length, 50)
+                    self.assertEqual(get_configuration().brotli_maximum_output_length, 1000)
+                    raise LimitReachedError('reader construction failure')
+            self.assertIs(get_configuration(), strict)
+            self.assertIs(EncodedStreamObject.get_data, original)
+
+    def test_pdf_declared_stream_length_is_capped(self):
+        from pypdf import PdfReader
+        data = self.text_pdf(b'normal text')
+        with self.assertRaises(ParseLimit):
+            with pdf_expansion_bounds(10):
+                PdfReader(io.BytesIO(data)).pages[0]['/Contents']
+
+    def test_pdf_resource_less_blank_page_does_not_force_unused_stream_decoding(self):
         from pypdf import PdfWriter
         from pypdf.generic import DecodedStreamObject, NameObject
         writer = PdfWriter(); page = writer.add_blank_page(width=100, height=100)
         stream = DecodedStreamObject(); stream.set_data(b' ' * 10000)
         page[NameObject('/Contents')] = writer._add_object(stream.flate_encode())
         buffer = io.BytesIO(); writer.write(buffer)
-        result = extract('pdf', buffer.getvalue(), {**DEFAULT_LIMITS, 'max_expanded_bytes': 1000})
-        self.assertEqual(result['status'], 'decompression_cap')
+        self.assertEqual(extract('pdf', buffer.getvalue(), {**DEFAULT_LIMITS, 'max_expanded_bytes': 1000})['status'], 'ok')
 
     def test_docx_unsafe_xml_rejected(self):
         buffer = io.BytesIO()
