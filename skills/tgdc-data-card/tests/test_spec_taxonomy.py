@@ -24,10 +24,49 @@ class TaxonomyTests(unittest.TestCase):
                  'a.pptx': T.PRESENTATIONS, 'a.dwg': T.CAD, 'a.skp': T.CAD, 'a.jpg': T.PHOTOS, 'a.mp4': T.AUDIO_VIDEO,
                  'a.eml': T.EMAIL, 'a.mbox': T.EMAIL, 'a.p7s': T.ESIGNED, 'a.p7m': T.ESIGNED, 'a.rar': T.ARCHIVES,
                  'a.xml': T.STRUCTURED, 'a.bak': T.STRUCTURED, 'a.log': T.SYSTEM, 'a.db': T.SYSTEM, 'a.php': T.SOURCE,
-                 'a.ttf': T.SOURCE, 'a.exe': T.PROGRAMS, 'a.bat': T.PROGRAMS, 'a.cdr': T.OTHER, 'noext': T.OTHER}
+                 'a.ttf': T.SOURCE, 'a.exe': T.PROGRAMS, 'a.bat': T.PROGRAMS, 'a.cdr': T.PHOTOS, 'a.vsdx': T.OTHER, 'noext': T.OTHER}
         for name, category in cases.items():
             with self.subTest(name=name):
                 self.assertEqual(T.category_of(name), category)
+
+    def test_engineering_formats_have_their_own_label_and_category(self):
+        cad = ['bracket.CATPart', 'frame.CATProduct', 'frame.CATDrawing', 'mill.CATProcess', 'load.CATAnalysis', 'load.CATAnalysisResults',
+               'view.cgr', 'frame.3dxml', 'frame.jt', 'part.prt', 'frame.asm', 'frame.drw', 'bracket.SLDPRT', 'frame.SLDASM', 'frame.SLDDRW',
+               'load.cwr', 'gear.FCStd', 'gear.FCMacro', 'gear.FCStd1', 'shaft.m3d', 'gearbox.a3d', 'shaft.cdw', 'shaft.frw', 'house.rvt',
+               'house.pln', 'scan.e57', 'scan.las', 'mill.pmlprj', 'mill.mcam', 'mill.mcx-9', 'mill.prz', 'load.sim', 'mesh.fem', 'run.cae',
+               'heat.mph', 'flow.cas', 'study.wbpj', 'study.wbpz', 'deck.inp', 'deck.cdb', 'deck.nas', 'crash.k', 'mesh.msh', 'run.odb',
+               'run.op2', 'run.f06', 'run.frd', 'run.jnl', 'cabinet.zw1', 'cabinet.elk']
+        other = ['line.zap17', 'line.zap15_1', 'line.ap20', 'line.s7p', 'press.acd', 'press.L5X', 'press.l5k', 'press.projectarchive',
+                 'cell.tnzip', 'cell.tsproj', 'pump.stu', 'pump.xef', 'pump.zef', 'valve.smc2', 'valve.cxp', 'robot.gxw', 'robot.gx3',
+                 'robot.apj', 'part.nc', 'part.gcode', 'part.tap', 'part.ngc', 'part.mpf', 'part.nc1', 'part.acm', 'check.dmi',
+                 'check.dmis', 'schedule.xer', 'house.rup']
+        for names, category in ((cad, T.CAD), (other, T.OTHER), (['logo.cdr', 'texture.spp'], T.PHOTOS)):
+            for name in names:
+                with self.subTest(name=name):
+                    self.assertEqual(T.category_of(name), category)
+                    self.assertEqual(T.extension_label(name), name.rsplit('.', 1)[1].lower())
+
+    def test_every_extension_belongs_to_one_category(self):
+        listed = [extension for names in T._EXTENSION_GROUPS.values() for extension in names.split()]
+        twice = sorted({extension for extension in listed if listed.count(extension) > 1})
+        self.assertEqual(twice, ['key'])          # a presentation or a key file: its first bytes decide
+        for extension in listed:
+            self.assertEqual(extension, extension.lower())
+            self.assertIsNone(T._VOLUME_LABEL.fullmatch(extension), extension)
+
+    def test_creo_versions_and_fluent_hdf5_files_count_as_their_format(self):
+        for name, label, category in [('bracket.prt.12', 'prt', T.CAD), ('Frame.ASM.3', 'asm', T.CAD), ('frame.drw.1', 'drw', T.CAD),
+                                      ('wing.cas.h5', 'cas', T.CAD), ('wing.msh.h5', 'msh', T.CAD), ('C:\\models\\pump.prt.7', 'prt', T.CAD)]:
+            with self.subTest(name=name):
+                self.assertEqual(T.raw_extension(name), label)
+                self.assertEqual(T.extension_label(name), label)
+                self.assertEqual(T.category_of(name), category)
+        for name, raw in [('wing.dat.h5', 'h5'), ('model.h5', 'h5'), ('report.pdf.2', '2'), ('notes.12', '12'), ('backup.zip.001', '001'),
+                          ('wing.cas.gz', 'gz'), ('scan.prt.v2', 'v2'), ('x.prt.2.3', '3'), ('.prt.12', '12')]:
+            with self.subTest(name=name):
+                self.assertEqual(T.raw_extension(name), raw)
+        self.assertEqual(T.extension_label('wing.dat.h5'), T.IRREGULAR_EXTENSION)
+        self.assertEqual(T.extension_label('backup.zip.001', multipart_part=True), '001')
 
     def test_pdf_depends_on_text_layer_and_json_csv_in_a_mailbox_are_mail(self):
         self.assertEqual(T.category_of('a.pdf', pdf_scanned=False), T.DOCUMENTS)

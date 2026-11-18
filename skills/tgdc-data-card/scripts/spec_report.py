@@ -87,7 +87,7 @@ def check_vocabulary(spec):
         if _fields(category).get('name') not in T.CATEGORIES:
             raise ValueError('Unknown content category.')
         _extensions(category.get('formats'))
-    for row in _items(spec['formats']):
+    for row in _items(spec['formats']) + _items(spec.get('all_formats')):
         _extensions([_fields(row).get('ext')])
         if row.get('category') not in T.CATEGORIES:
             raise ValueError('Unknown content category.')
@@ -883,8 +883,12 @@ def notes(spec):
             text += (f" {plural(count, 'file or message', 'files or messages')} {'carries' if count == 1 else 'carry'} a date that is clearly not reliable "
                      f"(before 1990 or after {spec['current_year']}) and {'is' if count == 1 else 'are'} shown as 'date not reliable'.")
         items.append(text)
-    items.append(f'By format: {unit.name} values are rounded to three decimals; 0.000 means less than {unit.half}. Only the extensions of known file '
-                 "formats are listed; every other extension (file-name fragments after a dot) is grouped as '(other / irregular extension)'.")
+    text = (f'By format: {unit.name} values are rounded to three decimals; 0.000 means less than {unit.half}. Only the extensions of known file '
+            "formats are listed; every other extension (file-name fragments after a dot) is grouped as '(other / irregular extension)'.")
+    listed = len(spec.get('all_formats') or ())
+    if listed > len(spec['formats']):
+        text += f" The table holds the {len(spec['formats'])} largest of {n(listed)} rows; spec.json lists every row."
+    items.append(text)
     if method['unreadable_files'] or method['time_limited_files']:
         count = method['unreadable_files'] + method['time_limited_files']
         items.append(f"{plural(count, 'file')} could not be read completely (access problem, change during the run or a time limit); "

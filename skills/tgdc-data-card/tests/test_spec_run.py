@@ -107,9 +107,11 @@ class SpecRunTests(unittest.TestCase):
             row[0] += 1
             row[1] += size
             row[2] += inside
-        expected = sorted(formats.items(), key=lambda i: (-i[1][1], i[0][1], i[0][0]))[:35]
-        got = [((r['ext'], r['category']), [r['files'], r['bytes'], r['archive_files']]) for r in self.spec['formats']]
+        expected = sorted(formats.items(), key=lambda i: (-i[1][1], i[0][1], i[0][0]))
+        got = [((r['ext'], r['category']), [r['files'], r['bytes'], r['archive_files']]) for r in self.spec['all_formats']]
         self.assertEqual(got, [(k, v) for k, v in expected])
+        self.assertEqual(self.spec['formats'], self.spec['all_formats'][:35])
+        self.assertEqual(sum(r['files'] for r in self.spec['all_formats']), self.spec['totals']['files'])
         labels = {r['ext'] for r in self.spec['formats']}
         self.assertIn('(other / irregular extension)', labels)
         self.assertIn('(no extension)', labels)

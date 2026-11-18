@@ -39,8 +39,23 @@ _EXTENSION_GROUPS = {
     SPREADSHEETS: 'xls xlsx xlsb xlsm xlt xltx xltm xlam ods csv tsv numbers',
     PRESENTATIONS: 'ppt pptx pptm pps ppsx potx potm ppam odp key',
     CAD: ('dwg dxf dgn dws dwt dwf dwfx shx skp ctb stb pc3 lin pat step stp iges igs stl ifc rvt rfa ipt iam idw '
-          'sldprt sldasm slddrw 3dm 3ds fcstd sat vwx shp prj catpart catproduct x_t x_b obj fbx dae 3mf nwd nwc'),
-    PHOTOS: 'jpg jpeg jpe jfif png gif bmp svg webp heic heif cr2 nef arw dng ico raw orf rw2 tga psd ai eps emf wmf indd',
+          'sldprt sldasm slddrw 3dm 3ds fcstd sat vwx shp prj catpart catproduct x_t x_b obj fbx dae 3mf nwd nwc '
+          # Native parts, assemblies and drawings: NX and Creo, Solid Edge, Fusion, Cimatron, CATIA, FreeCAD, KOMPAS-3D
+          'prt asm drw par psm dg f3d elt catdrawing fcmacro fcstd1 fcbak m3d a3d cdw frw '
+          # BIM and residential design models, lightweight and visualization models
+          'pln db1 plan caproj layout cgr 3dxml jt zprj blend blend1 '
+          # Point clouds
+          'rcp rcs e57 tzf fls las laz pts ptx '
+          # CAM projects and parts: PowerMill, Mastercam, SolidCAM, CATIA
+          'pmlprj pmlprjz pmlent pmlpar pmldat pmlobj pmllst pmlmz pmlblk mcx mcx-5 mcx-6 mcx-7 mcx-8 mcx-9 mcam prz catprocess '
+          # CAE analyses, input decks, meshes and results: CATIA, Simcenter, Abaqus, COMSOL, Fluent, Ansys, Nastran, LS-DYNA,
+          # CalculiX, SolidWorks Simulation
+          'catanalysis catanalysisresults catanalysiscomputations sim cae mph cas wbpj wbpz inp cdb nas k fem msh '
+          'odb op2 f06 frd cwr jnl '
+          # Electrical design: EPLAN
+          'zw1 elk'),
+    PHOTOS: ('jpg jpeg jpe jfif png gif bmp svg webp heic heif cr2 nef arw dng ico raw orf rw2 tga psd ai eps emf wmf indd '
+             'cdr spp'),
     AUDIO_VIDEO: ('mp3 wav wma aac flac ogg m4a amr mid midi mp4 wmv avi mov mkv mpg mpeg 3gp flv webm m4v vob'),
     EMAIL: 'eml emlx msg mbox mbx pst ost vcf ics oft nsf',
     ESIGNED: 'p7s p7m',
@@ -52,7 +67,13 @@ _EXTENSION_GROUPS = {
     SOURCE: ('php phtml js mjs css less scss sass ts tsx jsx py rb pl sh bash zsh java c cpp h hpp cs go rs swift kt '
              'lua ps1 vbs asp aspx jsp vue ttf otf woff woff2 eot mo po pot map'),
     PROGRAMS: 'exe msi dll sys bin com bat cmd inf apk app dmg pkg deb rpm jar scr ocx drv cpl',
-    OTHER: 'vsd vsdx vss vssx vst vstx mpp mpt pub',
+    OTHER: ('vsd vsdx vss vssx vst vstx mpp mpt pub xer rup '
+            # CNC and CMM inspection programs
+            'nc gcode tap ngc mpf nc1 acm dmi dmis '
+            # PLC projects and their exports: TIA Portal, STEP 7, Studio 5000, TwinCAT, EcoStruxure, CODESYS, CX-Programmer,
+            # GX Works, B&R Automation Studio
+            'zap13 zap14 zap15 zap15_1 zap16 zap17 zap18 zap19 zap20 ap13 ap14 ap15 ap15_1 ap16 ap17 ap18 ap19 ap20 '
+            's7p acd projectarchive tnzip tsproj stu smc2 cxp gxw gx3 apj l5x l5k xef zef'),
 }
 CATEGORY_OF_EXTENSION = {extension: category for category, names in _EXTENSION_GROUPS.items() for extension in names.split()}
 
@@ -82,10 +103,22 @@ def tokens(text):
     return re.findall(r'[a-z0-9]+', fold(text))
 
 
+# Two-part names whose last suffix does not name the format: Creo numbers the saved versions of a part, an assembly or a drawing
+# (bracket.prt.12), and Fluent writes cases and meshes in HDF5 (wing.cas.h5, wing.msh.h5).
+_VERSIONED_FORMATS = frozenset('prt asm drw'.split())
+_HDF5_FORMATS = frozenset('cas msh'.split())
+
+
 def raw_extension(name):
-    """Lower-case suffix of the final name component, without the dot."""
-    suffix = PurePosixPath(name.replace('\\', '/')).suffix
-    return suffix[1:].lower() if suffix else ''
+    """Lower-case suffix of the final name component, without the dot. A Creo version number (bracket.prt.12) or the HDF5
+    suffix of a Fluent case or mesh (wing.cas.h5) yields the suffix before it."""
+    path = PurePosixPath(name.replace('\\', '/'))
+    suffix = path.suffix[1:].lower()
+    if re.fullmatch(r'[0-9]+|h5', suffix):
+        inner = PurePosixPath(path.stem).suffix[1:].lower()
+        if inner in (_HDF5_FORMATS if suffix == 'h5' else _VERSIONED_FORMATS):
+            return inner
+    return suffix
 
 
 # Volume numbers of a split archive (.001, .r01, .z01) are the only labels beyond the known formats; they cannot hold a name.
