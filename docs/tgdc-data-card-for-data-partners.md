@@ -62,12 +62,12 @@ The agent reads every file once, including the files inside compressed archives,
 ```text
 Please create a TGDC Data Card with the full data format specification.
 
-1. Download two files from the release tgdc-data-card-v1.3.0 of
+1. Download two files from the release tgdc-data-card-v1.4.0 of
    https://github.com/The-General-Data-Company/tgdc-skills
-   namely tgdc-data-card-v1.3.0.tar.gz and SHA256SUMS.
+   namely tgdc-data-card-v1.4.0.tar.gz and SHA256SUMS.
    Verify the checksum with: shasum -a 256 -c SHA256SUMS --ignore-missing
    (on Linux and in Git Bash on Windows: sha256sum -c SHA256SUMS --ignore-missing;
-   in PowerShell: (Get-FileHash tgdc-data-card-v1.3.0.tar.gz).Hash must equal
+   in PowerShell: (Get-FileHash tgdc-data-card-v1.4.0.tar.gz).Hash must equal
    the value in SHA256SUMS, ignoring upper and lower case). Stop if it fails.
 2. Unpack the archive into this working folder (tar -xzf works on Windows too).
 3. Read tgdc-data-card/SKILL.md completely and follow it step by step.
