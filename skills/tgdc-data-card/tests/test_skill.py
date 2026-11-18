@@ -76,7 +76,7 @@ class SkillTests(unittest.TestCase):
         self.assertTrue(text.startswith('---\nname: tgdc-data-card\n'))
         self.assertEqual(ROOT.name, 'tgdc-data-card')
         self.assertTrue((ROOT / 'LICENSE.txt').is_file())
-        self.assertIn('  version: "1.3.0"', text)
+        self.assertIn('  version: "1.4.0"', text)
         self.assertEqual(len([line for line in text.splitlines() if re.match(r'^\d\. \*\*', line)]), 8)
         for name in ('references/format-spec.md', 'references/privacy.md', 'references/field-guide.md'):
             self.assertIn(name, text)

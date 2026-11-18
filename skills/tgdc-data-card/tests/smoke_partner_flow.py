@@ -74,7 +74,7 @@ def main(work):
                     '--requirement', str(SKILL / 'scripts' / 'requirements.txt')], check=True)
     run(python, 'profile', '--source', data, '--output', report)
     (report / 'spec-config.json').write_text(json.dumps({
-        'company': 'Muster Bau GmbH', 'sector_line': 'Construction and engineering', 'month': 'November 2026',
+        'company': 'Muster Bau GmbH', 'sector_line': 'Construction and engineering', 'month': 'November 2026', 'scope': 'full archive',
         'mailboxes': [{'root': str(data / 'Mail'), 'label': 'Mailbox 1 (company)'}],
         'project_roots': [str(data / 'Projekte')], 'drawing_patterns': ['Grundriss', 'Zeichnung']}), encoding='utf-8')
     run(python, 'spec', '--source', data, '--output', report, '--config', report / 'spec-config.json')
@@ -85,6 +85,8 @@ def main(work):
     archives = spec['methodology']['archives']
     held, members = spec['totals']['held_files'], spec['parts']['archive_contents']['files']
     problems = []
+    if spec.get('scope') != 'full archive':
+        problems.append(f"scope {spec.get('scope')!r} != 'full archive'")
     if held != 4 + with_seven:                                 # files on disk; archive members are counted apart
         problems.append(f'files on disk {held} != {4 + with_seven}')
     if members != 3 + with_seven:                              # Protokoll, inner.zip, Grundriss inside inner.zip, the 7z member
