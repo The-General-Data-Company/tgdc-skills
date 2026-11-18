@@ -362,6 +362,12 @@ class SpecReportTests(unittest.TestCase):
         self.assertIn('3 volumes of multi-part archives have no first part and could not be opened', flat)
         self.assertNotIn('symbolic links inside compressed archives', flat)
 
+    def test_only_unique_files_count_is_said_once_and_the_unique_note_points_to_it(self):
+        _, pages = self.render(self.spec, 'unique.pdf')
+        flat = ' '.join(' '.join(pages).split())
+        self.assertEqual(flat.count('Only unique files count'), 1)
+        self.assertIn("'Unique' = distinct file contents by SHA-256, the files that count; copies of the same document in several folders count once.", flat)
+
     def test_the_credential_note_says_which_files_get_a_checksum(self):
         import spec_report
         spec = copy.deepcopy(self.spec)

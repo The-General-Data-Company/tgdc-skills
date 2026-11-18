@@ -30,6 +30,7 @@ RULE = colors.HexColor('#303030')
 WIDTH = A4[0] - 72
 CONTACT = 'levin@thegeneraldata.com'
 PRODUCER = 'The General Data Company'
+UNIQUE_FILES = 'Only unique files count: byte-identical copies (same SHA-256) count once. Revisions and versions count on their own.'
 METRICS = {
     'selected_files': 'Selected files', 'selected_bytes': 'Selected size',
     'documents_processed': 'Successfully parsed files',
@@ -366,7 +367,7 @@ def _context(profile, answers):
 
 
 def _methodology(profile):
-    story = [Indenter(right=24), _heading('Methodology & evidence'), _paragraph('Audit generated at: ' + profile['generated_at'], 8, MUTED, 'Mono'), _paragraph('Schema 1.0 / selected_files. Measured records local parser observations, Inferred records language classification, and Provider-declared records explicit answers. Missing evidence is shown as unavailable.', 8, MUTED)]
+    story = [Indenter(right=24), _heading('Methodology & evidence'), _paragraph('Audit generated at: ' + profile['generated_at'], 8, MUTED, 'Mono'), _paragraph('Schema 1.0 / selected_files. Measured records local parser observations, Inferred records language classification, and Provider-declared records explicit answers. Missing evidence is shown as unavailable.', 8, MUTED), _paragraph(UNIQUE_FILES, 9, WHITE, 'OutfitMedium')]
     for key, label in METRICS.items():
         metric = profile['metrics'].get(key)
         if not metric: continue
