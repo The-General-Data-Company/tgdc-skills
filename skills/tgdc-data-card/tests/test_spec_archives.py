@@ -130,7 +130,9 @@ class ArchiveTests(unittest.TestCase):
         self.assertEqual(A.archive_kind('a.gz'), 'gz')
         self.assertEqual(A.archive_kind('a.rar'), 'rar')
         self.assertEqual(A.archive_kind('a.docx', b'PK\x03\x04'), None)
-        self.assertEqual(A.archive_kind('a.cdr', b'PK\x03\x04'), 'zip')
+        self.assertEqual(A.archive_kind('a.zzq', b'PK\x03\x04'), 'zip')
+        for name in ('a.cdr', 'a.3dxml', 'a.wbpz', 'a.zap17', 'a.projectarchive'):     # ZIP containers of a known format count as that format
+            self.assertIsNone(A.archive_kind(name, b'PK\x03\x04'), name)
         self.assertEqual(A.archive_kind('noext', b'Rar!\x1a\x07\x00'), 'rar')
         self.assertIsNone(A.archive_kind('plain.txt', b'hello'))
         self.assertTrue(A.unsafe_name('../x'))

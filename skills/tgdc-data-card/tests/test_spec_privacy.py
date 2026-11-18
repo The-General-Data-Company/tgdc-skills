@@ -145,6 +145,8 @@ class ValidateRejectsFreeText(unittest.TestCase):
         changes = {
             'formats ext': lambda s: s['formats'][0].__setitem__('ext', 'smith'),
             'formats category': lambda s: s['formats'][0].__setitem__('category', 'Anything'),
+            'all formats ext': lambda s: s['all_formats'][-1].__setitem__('ext', 'smith'),
+            'all formats category': lambda s: s['all_formats'][-1].__setitem__('category', 'Anything'),
             'category formats': lambda s: s['categories'][0]['formats'].append('acmecorp'),
             'alternative extensions': lambda s: next(i for i in s['mailboxes'][0]['alternatives'] if i['kind'] == 'archive')['extensions'].append('bob miller'),
             'summary alternative extensions': lambda s: next(i for i in s['parts']['alternative_exports']['items'] if i['kind'] == 'archive')['extensions'].append('corp'),

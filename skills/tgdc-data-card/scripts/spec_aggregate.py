@@ -548,9 +548,12 @@ class Build:
             if stat['files']:
                 spec['categories'].append({'name': name, 'files': stat['files'], 'bytes': stat['bytes'], 'archive_files': stat['arch_files'],
                                            'archive_bytes': stat['arch_bytes'], 'formats': top_formats(stat['ext']), 'unique': len(stat['unique'])})
-        ranked = sorted(formats.items(), key=lambda item: (-item[1][1], item[0][1], item[0][0]))[:TOP_FORMATS]
-        spec['formats'] = [{'ext': label, 'category': category, 'files': row[0], 'bytes': row[1], 'archive_files': row[2]}
-                           for (label, category), row in ranked]
+        ranked = sorted(formats.items(), key=lambda item: (-item[1][1], item[0][1], item[0][0]))
+        rows = [{'ext': label, 'category': category, 'files': row[0], 'bytes': row[1], 'archive_files': row[2]} for (label, category), row in ranked]
+        # 'formats' is the table of the PDF, the largest formats by volume. 'all_formats' lists every format, so that a small one
+        # (a few PLC projects among gigabytes of scans) is still counted under its own name.
+        spec['formats'] = [dict(row) for row in rows[:TOP_FORMATS]]
+        spec['all_formats'] = rows
         if members_total[0]:
             member_cats = state['member_cats']
             spec['archives'] = {'categories': [{'name': name, 'files': member_cats[name]['files'], 'bytes': member_cats[name]['bytes'],
