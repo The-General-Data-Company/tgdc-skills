@@ -18,6 +18,8 @@ One PDF in English, `TGDC-Data-Card.pdf`, in two parts:
    - **Projects:** drawings within complete project files, projects by number of documented project stages, drawings with bills of quantities, and drawings kept in several versions.
    - **By year:** files, volume and e-mails per year.
 
+Only unique files count: byte-identical copies (same SHA-256) count once. Revisions and versions count on their own.
+
 The report folder also holds `profile.json` and `spec.json` with the same aggregate numbers.
 
 ## What stays private
