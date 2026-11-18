@@ -20,14 +20,14 @@ One PDF in English, `TGDC-Data-Card.pdf`, in two parts:
 
 Only unique files count: byte-identical copies (same SHA-256) count once. Revisions and versions count on their own.
 
-The report folder also holds `profile.json` and `spec.json` with the same aggregate numbers.
+The report folder also holds `profile.json` and `spec.json` with the same aggregate numbers. We price from the counts in `spec.json`, so send it together with the PDF.
 
 ## What stays private
 
 - Everything runs on your computer. The scripts read only the folder you name and never change, move or delete a file.
 - The PDF and the two JSON files contain counts only: no file names, folder names, client names, e-mail addresses or document text.
 - Credential and key files are counted by name and never opened.
-- Nothing is sent automatically. You decide whether to share the PDF.
+- Nothing is sent automatically. You decide whether to share the PDF and `spec.json`.
 - Your agent sees your instructions, the aggregate results and your answers, as with any other task you give it. Your AI provider processes this under the terms of your account.
 - Three items hold the file-by-file record and stay on your computer: `manifest.private.json`, `spec-cache.private.sqlite` and the folder `calibration.private`. Do not send them.
 
@@ -35,7 +35,7 @@ The report folder also holds `profile.json` and `spec.json` with the same aggreg
 
 - Run the Data Card over your full archive, not only over the sample. The PDF counts the folder you name, and we plan from these counts.
 - Send the sample separately: at least 200 files that mirror the archive, with the same mix of file types.
-- Without a Data Card of the full archive and a sample of at least 200 files, we cannot name a price yet.
+- Without a Data Card of the full archive (the PDF and its `spec.json`) and a sample of at least 200 files, we cannot name a price yet.
 
 ## What you need
 
@@ -57,7 +57,7 @@ The agent reads every file once, including the files inside compressed archives,
 2. Copy the text below into the agent, replace the two paths, and send it.
 3. Answer the questions of the agent. You can skip any context question.
 4. Review the PDF.
-5. If you agree, send `TGDC-Data-Card.pdf` to your contact at TGDC. You may add `profile.json` and `spec.json`, which hold the same aggregate numbers.
+5. If you agree, send `TGDC-Data-Card.pdf` and `spec.json` to your contact at TGDC. We need both: we price from the counts in `spec.json`. You may add `profile.json`.
 
 ```text
 Please create a TGDC Data Card with the full data format specification.
