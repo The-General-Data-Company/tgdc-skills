@@ -43,6 +43,7 @@ SETTINGS_DEFAULTS = {
     'grace_seconds': 60.0, 'hash_floor_seconds': 900.0,
 }
 CONFIG_STRINGS = ('company', 'sector_line', 'month')
+SCOPES = ('full archive', 'sample')     # what the selection is, as the customer says: the whole archive or a sample of it
 PROGRESS_EVERY = 1000
 
 
@@ -118,7 +119,7 @@ def validate_config(raw, roots):
     raw = raw or {}
     if not isinstance(raw, dict):
         raise SpecConfigError('The specification configuration must be a JSON object.')
-    allowed = {'company', 'sector_line', 'month', 'mailboxes', 'project_roots', 'project_depth', 'stages',
+    allowed = {'company', 'sector_line', 'month', 'scope', 'mailboxes', 'project_roots', 'project_depth', 'stages',
                'bill_of_quantities_patterns', 'drawing_patterns', 'schematic_patterns', 'calibration', 'revision_tokens', 'limits'}
     unknown = set(raw) - allowed
     if unknown:
@@ -127,6 +128,10 @@ def validate_config(raw, roots):
     for key in CONFIG_STRINGS:
         if key in raw:
             config[key] = _text(raw[key], key)
+    if 'scope' in raw:
+        if raw['scope'] not in SCOPES:
+            raise SpecConfigError('scope must be "full archive" or "sample".')
+        config['scope'] = raw['scope']
     config['mailboxes'] = []
     for item in raw.get('mailboxes', []):
         if not isinstance(item, dict) or set(item) - {'root', 'label'} or 'root' not in item:

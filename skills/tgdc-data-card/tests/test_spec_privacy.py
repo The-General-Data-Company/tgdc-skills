@@ -199,6 +199,14 @@ class ConfigLabels(unittest.TestCase):
                 self.config(stages={'items': [{'name': name, 'patterns': ['x']}]})
         self.config(stages={'items': [{'name': 'z' * 60, 'patterns': ['x']}]})
 
+    def test_scope_is_the_full_archive_or_a_sample(self):
+        self.assertNotIn('scope', self.config())
+        for scope in ('full archive', 'sample'):
+            self.assertEqual(self.config(scope=scope)['scope'], scope)
+        for scope in ('Full archive', 'part', '', None, 1):
+            with self.subTest(scope=scope), self.assertRaises(formatspec.SpecConfigError):
+                self.config(scope=scope)
+
 
 class SensitivePaths(unittest.TestCase):
     def test_a_path_is_sensitive_when_any_component_is_hidden_or_credential_like(self):

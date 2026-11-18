@@ -524,7 +524,7 @@ class Build:
         parts = state['parts']
         held_files, held_bytes = total_files - members_total[0], total_bytes - members_total[1]
         spec = {'schema': SCHEMA, 'current_year': self.year_now}
-        for key in ('company', 'sector_line', 'month'):
+        for key in ('company', 'sector_line', 'month', 'scope'):
             if cfg.get(key):
                 spec[key] = cfg[key]
         spec['totals'] = {'files': total_files, 'bytes': total_bytes, 'held_files': held_files, 'held_bytes': held_bytes,

@@ -75,6 +75,10 @@ class SpecRunTests(unittest.TestCase):
         self.assertEqual(spec['parts']['held_without_archives']['files'], len(fx.files))
         self.assertEqual(spec['parts']['mailboxes']['messages'], 17)
 
+    def test_scope_is_written_only_when_the_customer_said_it(self):
+        self.assertNotIn('scope', self.fx.config)
+        self.assertNotIn('scope', self.spec)
+
     def test_categories_unique_counts_and_main_formats(self):
         stats = defaultdict(lambda: {'files': 0, 'bytes': 0, 'unique': set(), 'af': 0, 'ab': 0, 'ext': Counter()})
         for category, label, size, sha, inside, new, cred in self.entries():

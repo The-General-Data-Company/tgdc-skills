@@ -24,6 +24,7 @@ Every key is optional. Keys that are missing leave the matching rows out of the 
   "company": "Example Works SRL",
   "sector_line": "Construction contractor (water, sewerage, irrigation)",
   "month": "October 2026",
+  "scope": "full archive",
   "mailboxes": [
     {"root": "/absolute/path/inside/a/selected/root/mail-1", "label": "Mailbox 1 (owner, Gmail)"},
     {"root": "/absolute/path/inside/a/selected/root/mail-2", "label": "Mailbox 2 (co-owner, Yahoo)"}
@@ -47,6 +48,7 @@ Every key is optional. Keys that are missing leave the matching rows out of the 
 ```
 
 - `company`, `sector_line`, `month` form the title block. They are shown as written.
+- `scope` is `full archive` when the selection is the customer's full archive and `sample` when it is only a sample of it. It is written to `spec.json` as given and not shown in the PDF.
 - `mailboxes[].root` is a folder (or one `.mbox` file) inside a selected root. Everything below it belongs to that mailbox. A root that holds no `.eml` or `.mbox` file is treated as an ordinary folder. `label` is shown in the PDF; write it in English as a short generic description (at most 60 characters, for example `Mailbox 1 (owner, Gmail)`), never with a person name, a client name, an e-mail address or a link. The run rejects longer labels, addresses and links.
 - `project_roots` and `project_depth` define projects: a project is the folder `project_depth` levels below a project root (default 1).
 - `stages.items` lists the customer's own stages in order. `name` is shown in the PDF: English, generic and at most 60 characters, like a mailbox label. `patterns` are keywords, in the language of the archive, that identify the stage in file and folder names. A stage counts as documented for a project when any file below the project matches one of its patterns. `thresholds` defaults to ceil(n/2), ceil(n/2)+1, ceil(n/2)+2 for n stages, none above n. `title` is `project milestones` or `lifecycle stages`.
