@@ -953,8 +953,8 @@ def default_workers(cpus=None, ram_bytes=_UNKNOWN):
 def run_spec(sources, output, config=None, workers=None, limits=None, tools=None, stop_after=None, log=None, report_date=None, walked=None):
     """Read every selected file and write spec.json and the private cache into the output folder.
 
-    walked: called with (roots, entries, walk statistics, spec) after spec.json is written and while the run still holds the
-    output folder, so that the profile of the card describes the files of this one walk."""
+    walked: called with (roots, entries, walk statistics, spec) just before spec.json is written and while the run still holds
+    the output folder, so that the profile of the card describes the files of this one walk."""
     from spec_aggregate import aggregate
     require_supported_platform()
     check_dependencies()
@@ -1049,10 +1049,10 @@ def run_spec(sources, output, config=None, workers=None, limits=None, tools=None
                    'settings': settings, 'workers': count}
         spec = aggregate(entries, cache, cfg, context)
         verify_output_directory(output, descriptor)
+        if walked is not None:                  # first, so that a failure there leaves the files of the previous run together
+            walked(roots, entries, dict(walk_stats), spec)
         write_json(descriptor, 'spec.json', spec)
         verify_output_directory(output, descriptor)
-        if walked is not None:
-            walked(roots, entries, dict(walk_stats), spec)
         return spec
     finally:
         if cache is not None:

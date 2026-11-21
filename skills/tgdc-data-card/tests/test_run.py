@@ -284,6 +284,23 @@ class RunFlowTests(Base):
         self.assertEqual(sorted(profile['inventory']['by_extension']), ['dwg', 'txt'])
         self.assertEqual((profile['inventory']['files'], spec['totals']['held_files']), (2, 2))
 
+    def test_a_failure_while_the_profile_is_written_leaves_the_files_of_the_previous_run_together(self):
+        self.assertEqual(cli('run', '--source', self.data, '--output', self.out).returncode, 0)
+        names = ('spec.json', 'profile.json', 'TGDC-Data-Card.pdf')
+        before = [(self.out / name).read_bytes() for name in names]
+        (self.data / 'Projects' / 'new.txt').write_text(S.EN + ' new')
+
+        def fail(*arguments):
+            raise OSError('no space left')
+
+        with self.assertRaises(OSError):
+            formatspec.run_spec([self.data], self.out, log=LOG, walked=fail)
+        self.assertEqual([(self.out / name).read_bytes() for name in names], before)       # no new specification next to an old profile
+        self.assertFalse((self.out / 'spec-run.lock').exists())
+        done = cli('run', '--source', self.data, '--output', self.out)
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertEqual((load(self.out / 'profile.json')['inventory']['files'], load(self.out / 'spec.json')['totals']['held_files']), (3, 3))
+
     def test_an_empty_selection_still_gives_a_consistent_card(self):
         empty = self.base / 'empty'
         empty.mkdir()
