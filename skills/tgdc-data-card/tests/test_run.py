@@ -12,6 +12,7 @@ import tempfile
 import unittest
 import zipfile
 from pathlib import Path
+from unittest import mock
 
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parent
@@ -192,6 +193,146 @@ class OneWalkTests(Base):
         profile, spec = load(self.out / 'profile.json'), load(self.out / 'spec.json')
         self.assertEqual((profile['inventory']['files'], spec['totals']['held_files'], profile['scope']['selected_root_count']), (3, 3, 3))
         self.assertEqual(profile['metrics']['rows_processed']['value'], 2)
+
+
+    def test_the_profile_uses_the_walk_of_the_full_pass_and_never_walks_again(self):
+        self.drawings_sort_last()
+
+        def write_profile(roots, entries, walk, spec):
+            (self.data / 'Y cad' / 'added after the walk.dwg').write_bytes(b'AC1032 late')        # not in the walk, so in neither part
+            with mock.patch.object(profiler, 'inventory', side_effect=AssertionError('a second walk')):
+                profiler.profile([self.data], self.out, walked=(roots, entries, walk), totals=spec['totals'])
+
+        spec = formatspec.run_spec([self.data], self.out, workers=2, log=LOG, walked=write_profile)
+        profile = load(self.out / 'profile.json')
+        self.assertEqual((profile['inventory']['files'], spec['totals']['held_files']), (100, 100))
+        self.assertEqual(profile['inventory']['bytes'], spec['totals']['held_bytes'])
+
+    @unittest.skipIf(os.environ.get('TGDC_SKIP_SLOW'), 'slow test skipped')
+    def test_more_files_than_the_limit_of_older_releases_are_all_counted(self):
+        for folder in range(101):                               # 100,001 files: one more than the limit of releases before 1.5.0
+            directory = self.data / f'{folder:03d}'
+            directory.mkdir()
+            for number in range(1000 if folder < 100 else 1):
+                (directory / f'{number:03d}.dwg').touch()
+        result = profiler.profile([self.data], self.out)
+        self.assertEqual(result['inventory']['files'], 100001)
+        self.assertEqual(result['inventory']['by_extension'], {'dwg': {'files': 100001, 'bytes': 0}})
+        self.assertTrue(result['scope']['enumeration_complete'])
+
+    def test_skipped_entries_are_named_on_the_first_page(self):
+        (self.data / 'report.txt').write_text(S.EN)
+        (self.data / '.cache').mkdir()
+        (self.data / '.cache' / 'a.txt').write_text('a')
+        (self.data / 'Password policies').mkdir()
+        (self.data / 'Password policies' / 'b.txt').write_text('b')
+        done = cli('run', '--source', self.data, '--output', self.out)
+        self.assertEqual(done.returncode, 0, done.stderr)
+        profile = load(self.out / 'profile.json')
+        self.assertEqual(profile['scope']['entries_not_counted'], {'hidden_entries': 1, 'credential_folders': 1, 'symlinks': 0, 'special_files': 0})
+        page = first_page(self.out / 'TGDC-Data-Card.pdf')
+        self.assertIn('1 Selected files', page)
+        self.assertIn('2 hidden, linked or credential-like entries not counted', page)
+
+
+class FailureTests(Base):
+    """What the review of 1.5.0 broke on purpose: each case used to fail after the full pass or leave files of two runs."""
+
+    def setUp(self):
+        super().setUp()
+        for number in range(6):
+            (self.data / f'{number}.txt').write_text(S.EN + str(number))
+
+    def test_a_sample_file_that_cannot_be_parsed_for_lack_of_a_process_is_counted_and_the_run_goes_on(self):
+        calls = []
+
+        def fail_once(kind, data, limits):
+            calls.append(kind)
+            if len(calls) == 2:
+                raise OSError(24, 'Too many open files')
+            return original(kind, data, limits)
+
+        original = profiler.bounded_extract
+        with mock.patch.object(profiler, 'bounded_extract', side_effect=fail_once):
+            result = profiler.profile([self.data], self.out)
+        self.assertEqual(result['extraction']['status_counts'], {'io_error': 1, 'ok': 5})
+        self.assertEqual(result['extraction']['attempted'], 6)
+
+    def test_an_interrupt_in_the_last_step_is_an_interrupted_run_and_keeps_the_previous_files(self):
+        formatspec.run_spec([self.data], self.out, log=LOG, walked=lambda *a: None)
+        before = (self.out / 'spec.json').read_bytes()
+        (self.data / 'new.txt').write_text(S.EN)
+
+        def interrupt(*arguments):
+            raise KeyboardInterrupt()
+
+        with self.assertRaises(formatspec.SpecInterrupted):
+            formatspec.run_spec([self.data], self.out, log=LOG, walked=interrupt)
+        self.assertEqual((self.out / 'spec.json').read_bytes(), before)
+        self.assertFalse((self.out / 'spec-run.lock').exists())
+
+    def test_unsupported_characters_are_refused_before_any_file_is_read(self):
+        self.out.mkdir()
+        for name, content in (('answers.json', {'notes': '\u65e5\u672c\u8a9e'}), ('spec-config.json', {'company': '\u682a\u5f0f\u4f1a\u793e'}),
+                              ('spec-config.json', {'mailboxes': [{'root': str(self.data), 'label': '\u90f5\u4fbf'}]})):
+            with self.subTest(name=name, content=content):
+                (self.out / name).write_text(json.dumps(content), encoding='utf-8')
+                done = cli('run', '--source', self.data, '--output', self.out)
+                self.assertEqual(done.returncode, 2)
+                self.assertIn('characters the report cannot show', done.stderr)
+                self.assertEqual(sorted(path.name for path in self.out.iterdir()), [name])
+                (self.out / name).unlink()
+
+    @unittest.skipIf(P.WINDOWS, 'the home folder comes from other variables on Windows')
+    def test_a_tilde_in_the_report_path_is_one_folder_for_every_step(self):
+        home = self.base / 'home'
+        (home / 'rep').mkdir(parents=True)
+        (home / 'rep' / 'answers.json').write_text(json.dumps({'provider_context': 'Found in the home folder'}))
+        done = subprocess.run([sys.executable, str(SCRIPT), 'run', '--source', str(self.data), '--output', '~/rep'], cwd=self.base,
+                              capture_output=True, text=True, timeout=300, env={**os.environ, 'HOME': str(home)})
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertFalse((self.base / '~').exists())
+        self.assertIn('Found in the home folder', '\n'.join(page.extract_text() for page in PdfReader(home / 'rep' / 'TGDC-Data-Card.pdf').pages))
+        self.assertIn('Answers used: answers.json', done.stdout)
+
+    def test_a_failed_rendering_leaves_no_card_of_an_earlier_run(self):
+        import datacard
+        import report
+        arguments = ['run', '--source', str(self.data), '--output', str(self.out)]
+        with mock.patch('sys.stdout'), mock.patch('sys.stderr'):
+            self.assertEqual(datacard.main(arguments), 0)
+            self.assertTrue((self.out / 'TGDC-Data-Card.pdf').is_file())
+            (self.data / 'new.txt').write_text(S.EN)
+            with mock.patch.object(report, 'render', side_effect=ValueError('render failed')):
+                self.assertEqual(datacard.main(arguments), 2)
+        self.assertFalse((self.out / 'TGDC-Data-Card.pdf').exists())
+        self.assertEqual((load(self.out / 'profile.json')['inventory']['files'], load(self.out / 'spec.json')['totals']['held_files']), (7, 7))
+
+    def test_a_private_file_takes_a_path_whose_bytes_are_not_text(self):
+        descriptor = profiler.output_directory(profiler.checked_path(self.out))
+        try:
+            profiler.write_json(descriptor, 'manifest.private.json', {'files': [{'path': '/data/caf\udce9.txt'}]}, private=True)
+            with self.assertRaises(UnicodeEncodeError):
+                profiler.write_json(descriptor, 'profile.json', {'value': 'caf\udce9'})         # a shared file never takes one
+        finally:
+            os.close(descriptor)
+        self.assertIn('caf\\udce9', (self.out / 'manifest.private.json').read_text(encoding='utf-8'))
+        self.assertFalse((self.out / 'profile.json').exists())
+
+    def test_the_sample_readers_follow_the_readers_of_the_full_pass(self):
+        self.assertEqual(profiler.sample_readers(1), 1)
+        self.assertEqual(profiler.sample_readers(64), 8)
+        self.assertTrue(1 <= profiler.sample_readers() <= 8)
+
+    def test_files_that_differ_only_in_size_are_not_one_selection(self):
+        import report
+        profile = {'inventory': {'files': 5, 'bytes': 100}}
+        report._same_selection(profile, {'totals': {'held_files': 5, 'held_bytes': 100}})
+        for totals in ({'held_files': 5, 'held_bytes': 101}, {'held_files': 6, 'held_bytes': 100}):
+            with self.subTest(totals=totals), self.assertRaises(report.SelectionMismatch):
+                report._same_selection(profile, {'totals': totals})
+        with self.assertRaises(ValueError):
+            report._same_selection(profile, {'totals': {}})
 
 
 class RunFlowTests(Base):

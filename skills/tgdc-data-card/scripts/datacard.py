@@ -68,7 +68,7 @@ def main(argv=None):
     return render_command(arguments.profile, arguments.answers, arguments.output, arguments.spec)
 
 
-def render_command(profile, answers, output, spec):
+def render_command(profile, answers, output, spec, kept='the previous output is preserved'):
     try:
         from report import render
         output = render(profile, answers, output, spec)
@@ -77,7 +77,7 @@ def render_command(profile, answers, output, spec):
         return 2
     except (ValueError, OSError) as error:
         if error.__class__.__name__ == 'UnsupportedReportText':
-            print('Rendering failed: unsupported report characters. Provide an English or Latin-script summary; the previous output is preserved.', file=sys.stderr)
+            print(f'Rendering failed: unsupported report characters. Provide an English or Latin-script summary; {kept}.', file=sys.stderr)
         elif error.__class__.__name__ == 'OutputInUse':
             print('Rendering failed: the previous PDF is open in another program. Close it and run again; the previous output is preserved.', file=sys.stderr)
         elif error.__class__.__name__ == 'SelectionMismatch':
@@ -96,28 +96,44 @@ def render_command(profile, answers, output, spec):
 
 def in_report(output, name):
     """The path of a file the customer's answers were written to in the report directory, or None when it is not there."""
-    path = Path(output) / name
+    path = output / name
     return path if path.is_file() else None
+
+
+def report_strings(config, answers):
+    """Every string of the answers and of the configuration that is printed in the PDF."""
+    strings = list(answers.values())
+    if isinstance(config, dict):
+        strings += [config.get(key) for key in ('company', 'sector_line', 'month')]
+        strings += [item.get('label') for item in config.get('mailboxes') or [] if isinstance(item, dict)]
+        stages = config.get('stages')
+        if isinstance(stages, dict):
+            strings += [stages.get('title')] + [item.get('name') for item in stages.get('items') or [] if isinstance(item, dict)]
+    return strings
 
 
 def run_card_command(arguments):
     """One pass: walk the selection once, read every file, examine the content sample, write both JSON files and the PDF."""
-    output = Path(arguments.output)
     try:
         import formatspec
-        from profiler import profile
-        from report import load_answers
+        from profiler import checked_path, profile
+        from report import UnsupportedReportText, check_text, load_answers
+    except ImportError:
+        print('The Data Card requires the pinned Python dependencies in scripts/requirements.txt.', file=sys.stderr)
+        return 2
+    try:
+        output = Path(checked_path(arguments.output))        # the folder every step writes to, with ~ expanded and no link on the way
         config_path = arguments.config or in_report(output, 'spec-config.json')
         answers_path = arguments.answers or in_report(output, 'answers.json')
         config = formatspec.load_config(config_path) if config_path else None
-        if answers_path:
-            load_answers(answers_path)           # refused before the long pass, not after it
+        answers = load_answers(answers_path) if answers_path else {}
+        check_text(report_strings(config, answers))          # refused before the long pass, not after it
         limits = {'parse_seconds': arguments.parse_seconds, 'archive_seconds': arguments.archive_seconds,
                   'max_archive_bytes': arguments.max_archive_bytes, 'max_archive_ratio': arguments.max_archive_ratio}
         profiled = {}
 
         def write_profile(roots, entries, walk, spec):
-            profiled.update(profile(arguments.source, output, walked=(roots, entries, walk), totals=spec['totals']))
+            profiled.update(profile(arguments.source, output, walked=(roots, entries, walk), totals=spec['totals'], workers=arguments.workers))
 
         spec = formatspec.run_spec(arguments.source, output, config=config, workers=arguments.workers,
                                    limits={key: value for key, value in limits.items() if value}, stop_after=arguments.stop_after,
@@ -125,8 +141,9 @@ def run_card_command(arguments):
     except UnsupportedPlatform as error:
         print(str(error), file=sys.stderr)
         return 2
-    except ImportError:
-        print('The Data Card requires the pinned Python dependencies in scripts/requirements.txt.', file=sys.stderr)
+    except UnsupportedReportText:
+        print('Data Card failed: the answers or the configuration hold characters the report cannot show. '
+              'Provide an English or Latin-script text for them and run again; no file was read.', file=sys.stderr)
         return 2
     except formatspec.SpecInterrupted:
         print('Stopped before the last file. The finished part is saved; run the same command again to resume.', file=sys.stderr)
@@ -140,17 +157,23 @@ def run_card_command(arguments):
     except Exception:
         print('Data Card failed safely; no source diagnostics are displayed.', file=sys.stderr)
         return 1
-    folder = output.absolute()
     totals, extraction = spec['totals'], profiled['extraction']
-    print(f"Specification written to {folder / 'spec.json'}")
-    print(f"Profile written to {folder / 'profile.json'}")
+    print(f"Specification written to {portable.plain(output / 'spec.json')}")
+    print(f"Profile written to {portable.plain(output / 'profile.json')}")
     print(f"Files on disk: {totals['held_files']:,}; with the files inside archives: {totals['files']:,}; hashed: {totals['hashed_files']:,}; "
           f"unique contents: {totals['unique_contents']:,}")
     print(f"Content sample: {extraction['attempted']:,} files examined, {extraction['succeeded']:,} parsed")
     if not profiled['scope']['enumeration_complete']:
         print('Some folders or entries could not be read, for example for missing permissions. The card says so on its first page.')
+    used = [name for name, path in (('spec-config.json', config_path), ('answers.json', answers_path)) if path]
+    print('Answers used: ' + (', '.join(used) if used else 'none yet (spec-config.json and answers.json are read from the report folder when they exist)'))
     print('manifest.private.json and spec-cache.private.sqlite stay local; share only the PDF and spec.json.')
-    return render_command(folder / 'profile.json', answers_path, folder / PDF_NAME, folder / 'spec.json')
+    pdf = output / PDF_NAME
+    try:
+        pdf.unlink()            # the card of an earlier run must not stay next to the new counts if the rendering fails
+    except OSError:
+        pass                    # there is none, or a viewer holds it open: the rendering reports that
+    return render_command(output / 'profile.json', answers_path, pdf, output / 'spec.json', kept='no PDF was written')
 
 
 def run_sample_command(arguments):

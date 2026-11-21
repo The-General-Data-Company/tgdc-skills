@@ -100,6 +100,15 @@ def load_answers(path):
     return answers
 
 
+def check_text(values):
+    """Raise UnsupportedReportText for a string the report fonts cannot show. The run command calls this before the full pass,
+    so that such an answer is refused in seconds and not after hours of reading."""
+    _fonts()
+    for value in values:
+        if isinstance(value, str):
+            _plain(value)
+
+
 def _same_selection(profile, spec):
     """Both parts of a card must count the same files on disk. One run writes both files; a profile of another selection or
     of an older, limited inventory is refused, so the first page can never show a part of what the specification counts."""
@@ -309,7 +318,10 @@ def _overview(profile, answers):
     if not profile['scope']['enumeration_complete']:
         story.append(_paragraph('INCOMPLETE INVENTORY / some folders or files could not be read', 9, colors.HexColor('#EC9A3C'), 'Mono'))
     else:
-        story.append(_paragraph('Measured inventory of every selected file / no full-archive claim', 8, MUTED))
+        skipped = profile['scope'].get('entries_not_counted')
+        skipped = sum(skipped.values()) if isinstance(skipped, dict) and all(isinstance(value, int) and not isinstance(value, bool) for value in skipped.values()) else 0
+        note = f' / {_number(skipped)} hidden, linked or credential-like {"entry" if skipped == 1 else "entries"} not counted, see the notes' if skipped else ' / no full-archive claim'
+        story.append(_paragraph('Measured inventory of every selected file' + note, 8, MUTED))
     text_metric = metrics.get('files_with_extracted_text')
     text_value, text_scope = 'Not available', 'no evidence supplied'
     if text_metric:

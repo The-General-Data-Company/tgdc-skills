@@ -254,7 +254,8 @@ def write_json(directory, filename, payload, private=False):
     temporary = '.datacard-' + uuid.uuid4().hex
     descriptor = portable.open_at(directory, temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600 if private else 0o644)
     try:
-        with os.fdopen(descriptor, 'w', encoding='utf-8', newline='\n') as stream:
+        # A private file may hold a path with bytes that are not text (a legacy file name); it is written escaped, never refused.
+        with os.fdopen(descriptor, 'w', encoding='utf-8', newline='\n', errors='backslashreplace' if private else 'strict') as stream:
             portable.fchmod(stream.fileno(), 0o600 if private else 0o644)
             json.dump(payload, stream, indent=2, ensure_ascii=False, allow_nan=False); stream.write('\n')
         portable.replace_at(directory, temporary, filename)
@@ -300,15 +301,26 @@ def examine(entry, kind, limits):
         return empty_result('io_error')
     if read_error:
         return empty_result(read_error)
-    return bounded_extract(kind, data, limits)
+    try:
+        return bounded_extract(kind, data, limits)
+    except (OSError, MemoryError):            # no process or no memory for this one file: it is counted, the run goes on
+        return empty_result('io_error')
 
 
-def profile(sources, output, limits=None, walked=None, totals=None):
+def sample_readers(workers=None):
+    """Files of the content sample read at the same time: the readers of the full pass, at most 8. Each one can hold a whole
+    file of the sample in memory, so the memory rule of the full pass applies here too."""
+    from formatspec import default_workers       # imported here: formatspec imports this module
+    return max(1, min(SAMPLE_READERS, workers or default_workers()))
+
+
+def profile(sources, output, limits=None, walked=None, totals=None, workers=None):
     """Return and save the aggregate profile; save the local-only manifest of the examined sample separately.
 
     walked: (roots, entries, walk statistics) of a walk the caller has already made, so that the full pass and the profile
     describe the same files. Without it the selected roots are walked here.
-    totals: the totals of the full pass over the same walk; they give the count of exact duplicate copies."""
+    totals: the totals of the full pass over the same walk; they give the count of exact duplicate copies.
+    workers: the number of readers the caller chose for the full pass, if any."""
     require_supported_platform()
     limits = validate_limits(limits)
     if walked is None:
@@ -348,7 +360,7 @@ def profile(sources, output, limits=None, walked=None, totals=None):
     known_row_totals = known_page_totals = 0
     row_totals = page_totals = 0; content_dates = []
     private_files = []
-    with ThreadPoolExecutor(max_workers=SAMPLE_READERS) as readers:
+    with ThreadPoolExecutor(max_workers=sample_readers(workers)) as readers:
         evidences = list(readers.map(lambda position: examine(entries[position], extension(entries[position].name), limits), selected))
     for position, evidence in zip(selected, evidences):
         entry = entries[position]; kind = extension(entry.name)
@@ -433,7 +445,8 @@ def profile(sources, output, limits=None, walked=None, totals=None):
     skipped = sum(statuses.values()) - succeeded - errors
     result = {
         'schema_version': '1.0', 'generated_at': datetime.now(timezone.utc).isoformat(),
-        'scope': {'kind': 'selected_files', 'selected_root_count': len(roots), 'enumeration_complete': complete, 'limits': limits, 'selection_method': sample_coverage['selection'], 'hidden_and_credentials_excluded': True, 'symlinks_followed': False},
+        'scope': {'kind': 'selected_files', 'selected_root_count': len(roots), 'enumeration_complete': complete, 'limits': limits, 'selection_method': sample_coverage['selection'], 'hidden_and_credentials_excluded': True, 'symlinks_followed': False,
+                  'entries_not_counted': {key: walk.get(key, 0) for key in ('hidden_entries', 'credential_folders', 'symlinks', 'special_files')}},
         'inventory': {'files': files, 'bytes': total_bytes, 'by_extension': dict(sorted(kinds.items()))},
         'extraction': {'attempted': attempted, 'succeeded': succeeded, 'errors': errors, 'skipped': skipped, 'skipped_basis': 'encountered inventory files and excluded filesystem entries; unvisited subtree file counts unknown', 'status_counts': dict(sorted(statuses.items()))},
         'metrics': metrics,

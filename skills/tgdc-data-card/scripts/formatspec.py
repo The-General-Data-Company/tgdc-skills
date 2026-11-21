@@ -1050,7 +1050,10 @@ def run_spec(sources, output, config=None, workers=None, limits=None, tools=None
         spec = aggregate(entries, cache, cfg, context)
         verify_output_directory(output, descriptor)
         if walked is not None:                  # first, so that a failure there leaves the files of the previous run together
-            walked(roots, entries, dict(walk_stats), spec)
+            try:
+                walked(roots, entries, dict(walk_stats), spec)
+            except KeyboardInterrupt:
+                raise SpecInterrupted() from None
         write_json(descriptor, 'spec.json', spec)
         verify_output_directory(output, descriptor)
         return spec
