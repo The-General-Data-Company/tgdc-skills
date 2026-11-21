@@ -135,7 +135,7 @@
       "description": "Distinct fully hashed byte sequences; no semantic uniqueness claim.",
       "evidence_class": "measured target",
       "v1_status": "automatic_partial_or_private",
-      "v1_mapping": "Derivable only within full-hash coverage from metrics.duplicate_files, not full unique archive count",
+      "v1_mapping": "Derivable within the hash coverage of the full pass from metrics.duplicate_files and the totals of spec.json",
       "sharing": "Descriptions only. Identifiers, paths, raw text and sensitive references stay private by default."
     },
     {

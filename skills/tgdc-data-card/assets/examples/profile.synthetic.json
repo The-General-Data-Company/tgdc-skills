@@ -6,7 +6,6 @@
     "selected_root_count": 1,
     "enumeration_complete": true,
     "limits": {
-      "max_files": 100000,
       "max_sample_files": 1000,
       "max_file_bytes": 52428800,
       "max_pages": 50,
@@ -15,10 +14,9 @@
       "parser_seconds": 15.0,
       "max_expanded_bytes": 209715200,
       "max_cells": 200000,
-      "max_json_nodes": 200000,
-      "max_hash_bytes": 1073741824
+      "max_json_nodes": 200000
     },
-    "selection_method": "deterministic extension-stratified round-robin quotas; evenly spaced paths per extension",
+    "selection_method": "deterministic extension-stratified round-robin quotas; evenly spaced paths per extension over the whole inventory",
     "hidden_and_credentials_excluded": true,
     "symlinks_followed": false
   },
@@ -84,7 +82,7 @@
       "unit": "files",
       "basis": "measured",
       "denominator": 16,
-      "method": "regular non-hidden non-credential files enumerated in selected roots",
+      "method": "every regular non-hidden file in the selected roots; credential-like names are counted, never opened",
       "coverage": {
         "inventory_files": 16,
         "enumeration_complete": true
@@ -101,7 +99,7 @@
         "enumeration_complete": true,
         "sampled_files": 15,
         "successful_files": 13,
-        "selection": "deterministic extension-stratified round-robin quotas; evenly spaced paths per extension"
+        "selection": "deterministic extension-stratified round-robin quotas; evenly spaced paths per extension over the whole inventory"
       }
     },
     "files_with_extracted_text": {
@@ -115,7 +113,7 @@
         "enumeration_complete": true,
         "sampled_files": 15,
         "successful_files": 13,
-        "selection": "deterministic extension-stratified round-robin quotas; evenly spaced paths per extension",
+        "selection": "deterministic extension-stratified round-robin quotas; evenly spaced paths per extension over the whole inventory",
         "complete_text_files": 13,
         "text_character_limit_per_document": 200000
       }
@@ -157,13 +155,11 @@
       "unit": "files",
       "basis": "measured",
       "denominator": 16,
-      "method": "exact full-byte SHA-256 duplicates; extra copies beyond one per hash",
+      "method": "exact full-byte SHA-256 duplicates among every file the full pass hashed, on disk and inside archives; extra copies beyond one per hash",
       "coverage": {
         "inventory_files": 16,
         "enumeration_complete": true,
-        "hashed_files": 16,
-        "hashed_bytes": 8693,
-        "max_hash_bytes": 1073741824
+        "hashed_files": 16
       }
     },
     "rows_processed": {
@@ -177,7 +173,7 @@
         "enumeration_complete": true,
         "sampled_files": 15,
         "successful_files": 13,
-        "selection": "deterministic extension-stratified round-robin quotas; evenly spaced paths per extension",
+        "selection": "deterministic extension-stratified round-robin quotas; evenly spaced paths per extension over the whole inventory",
         "record_files": 7,
         "files_with_known_total": 7
       }
@@ -193,7 +189,7 @@
         "enumeration_complete": true,
         "sampled_files": 15,
         "successful_files": 13,
-        "selection": "deterministic extension-stratified round-robin quotas; evenly spaced paths per extension",
+        "selection": "deterministic extension-stratified round-robin quotas; evenly spaced paths per extension over the whole inventory",
         "record_files": 7,
         "files_with_known_total": 7
       }
@@ -209,7 +205,7 @@
         "enumeration_complete": true,
         "sampled_files": 15,
         "successful_files": 13,
-        "selection": "deterministic extension-stratified round-robin quotas; evenly spaced paths per extension",
+        "selection": "deterministic extension-stratified round-robin quotas; evenly spaced paths per extension over the whole inventory",
         "pdf_files": 2,
         "files_with_known_total": 2
       }
@@ -225,7 +221,7 @@
         "enumeration_complete": true,
         "sampled_files": 15,
         "successful_files": 13,
-        "selection": "deterministic extension-stratified round-robin quotas; evenly spaced paths per extension",
+        "selection": "deterministic extension-stratified round-robin quotas; evenly spaced paths per extension over the whole inventory",
         "pdf_files": 2,
         "files_with_known_total": 2
       }
@@ -241,7 +237,7 @@
         "enumeration_complete": true,
         "sampled_files": 15,
         "successful_files": 13,
-        "selection": "deterministic extension-stratified round-robin quotas; evenly spaced paths per extension",
+        "selection": "deterministic extension-stratified round-robin quotas; evenly spaced paths per extension over the whole inventory",
         "pdf_files": 2,
         "files_with_known_total": 2
       }
@@ -257,7 +253,7 @@
         "enumeration_complete": true,
         "sampled_files": 15,
         "successful_files": 13,
-        "selection": "deterministic extension-stratified round-robin quotas; evenly spaced paths per extension",
+        "selection": "deterministic extension-stratified round-robin quotas; evenly spaced paths per extension over the whole inventory",
         "complete_text_files": 13,
         "text_character_limit_per_document": 200000
       }
@@ -273,7 +269,7 @@
         "enumeration_complete": true,
         "sampled_files": 15,
         "successful_files": 13,
-        "selection": "deterministic extension-stratified round-robin quotas; evenly spaced paths per extension",
+        "selection": "deterministic extension-stratified round-robin quotas; evenly spaced paths per extension over the whole inventory",
         "complete_text_files": 13,
         "text_character_limit_per_document": 200000
       }
@@ -306,7 +302,7 @@
         "enumeration_complete": true,
         "sampled_files": 15,
         "successful_files": 13,
-        "selection": "deterministic extension-stratified round-robin quotas; evenly spaced paths per extension"
+        "selection": "deterministic extension-stratified round-robin quotas; evenly spaced paths per extension over the whole inventory"
       }
     },
     "english_document_share": {
@@ -320,7 +316,7 @@
         "enumeration_complete": true,
         "sampled_files": 15,
         "successful_files": 13,
-        "selection": "deterministic extension-stratified round-robin quotas; evenly spaced paths per extension",
+        "selection": "deterministic extension-stratified round-robin quotas; evenly spaced paths per extension over the whole inventory",
         "unknown_documents": 10
       }
     }
@@ -340,7 +336,7 @@
       "enumeration_complete": true,
       "sampled_files": 15,
       "successful_files": 13,
-      "selection": "deterministic extension-stratified round-robin quotas; evenly spaced paths per extension"
+      "selection": "deterministic extension-stratified round-robin quotas; evenly spaced paths per extension over the whole inventory"
     },
     "unknown_reasons": {
       "insufficient_text": 10

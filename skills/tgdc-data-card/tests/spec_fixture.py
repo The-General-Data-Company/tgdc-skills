@@ -16,6 +16,17 @@ from pathlib import Path
 import spec_samples as S
 import spec_taxonomy as T
 
+EXAMPLES = Path(__file__).resolve().parents[1] / 'assets' / 'examples'
+
+
+def render_example(output, spec_path):
+    """Render the example profile with any specification. Layout tests pair that profile with specifications of other
+    selections, so the check that both count the same files is switched off here; test_run.py holds that check."""
+    from unittest import mock
+    import report
+    with mock.patch.object(report, '_same_selection'):
+        return report.render(EXAMPLES / 'profile.synthetic.json', EXAMPLES / 'answers.synthetic.json', output, spec_path)
+
 PRIVATE_TOKENS = ['Northfield', 'Southbank', '01 Tender documents', '02 Drawings', '03 Contract', '04 Acceptance',
                   'tender notice', 'overview rev', 'wiring schematic', 'site layout', 'pipe layout', 'parola cont', 'parola conturi', 'Parole.xlsx', 'keystore',
                   'old note', 'oldformat', 'secretproject', 'client-acme', 'acme', 'zzq', 'zzr', 'Box1', 'Box2', 'ann@synthetic.test', 'bob@synthetic.test',

@@ -23,7 +23,7 @@ V1 produces exactly 16 evidence metrics, listed below. Scope, configuration, ext
 - `eml_content_date_bounds`
 - `english_document_share`
 
-Inventory counts only enumerated selected roots. Incomplete enumeration is explicit. Sampling, extraction, hashing, rows, PDF pages and text have distinct coverage. Arbitrary extensions are grouped as other to avoid exposing identifiers. Duplicate-file evidence is exact byte identity of completely hashed files, not semantic deduplication.
+Inventory counts every file of the selected roots, without a file limit, from the same walk as the data format specification. Incomplete enumeration (a folder that could not be read) is explicit. Sampling, extraction, hashing, rows, PDF pages and text have distinct coverage. Arbitrary extensions are grouped as other to avoid exposing identifiers. Duplicate-file evidence is exact byte identity of the files hashed by the full pass, on disk and inside archives, not semantic deduplication.
 
 The first non-empty row of CSV/TSV and each XLSX worksheet is treated as a header. This is a parsing assumption, not evidence that a header exists. Headerless exports may lose their first record; multi-row headers may be counted as records. Do not claim unconditional record totals without checking that assumption. Capped processed rows and known sample totals remain distinct; worksheet dimensions are not populated-row totals. Files, rows, messages and completed cases are different units.
 

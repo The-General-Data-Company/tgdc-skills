@@ -15,7 +15,7 @@ ROOT = HERE.parent
 sys.path.insert(0, str(ROOT / 'scripts'))
 sys.path.insert(0, str(HERE))
 import formatspec
-import report
+import spec_fixture as F
 import spec_content
 import spec_samples as S
 
@@ -72,7 +72,7 @@ class MboxTests(unittest.TestCase):
         import json
         path = self.base / 'spec.json'
         path.write_text(json.dumps(spec))
-        report.render(ROOT / 'assets/examples/profile.synthetic.json', ROOT / 'assets/examples/answers.synthetic.json', self.base / 'x.pdf', path)
+        F.render_example(self.base / 'x.pdf', path)
         from pypdf import PdfReader
         text = ' '.join(' '.join(page.extract_text() for page in PdfReader(self.base / 'x.pdf').pages).split())
         self.assertIn('3 e-mail messages (.mbox)', text)
@@ -123,7 +123,7 @@ class MailboxIntegrityTests(unittest.TestCase):
         import json
         path = self.base / 'spec.json'
         path.write_text(json.dumps(spec))
-        report.render(ROOT / 'assets/examples/profile.synthetic.json', ROOT / 'assets/examples/answers.synthetic.json', self.base / name, path)
+        F.render_example(self.base / name, path)
         from pypdf import PdfReader
         return ' '.join(' '.join(page.extract_text() for page in PdfReader(self.base / name).pages).split())
 

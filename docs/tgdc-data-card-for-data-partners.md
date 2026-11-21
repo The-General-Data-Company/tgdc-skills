@@ -43,13 +43,20 @@ The report folder also holds `profile.json` and `spec.json` with the same aggreg
 - Claude Code, OpenAI Codex or another coding agent that can run commands and read files.
 - The path of the folder of your full archive, and a separate empty folder for the report, outside the folder you examine. Choose a report folder on a local disk outside OneDrive, Dropbox, Google Drive and iCloud, for example a new folder `Report` inside the working folder of your agent: the private records and the temporary unpacked files are written there and must not be uploaded by a sync client. On Windows, Desktop and Documents are often inside OneDrive.
 - Free disk space at least as large as the largest compressed archive in the folder, for temporary unpacking.
+- Free memory of about 4 GB per million files in the folder. A very large archive can also be run one top-level folder at a time, each with its own report folder.
 - For RAR and 7z archives, a tool such as 7-Zip (Windows, from [7-zip.org](https://www.7-zip.org)) or The Unarchiver (macOS) helps. ZIP archives need nothing extra. The agent asks before it installs anything.
 - Files in Google Drive for desktop: mark the folder as "Available offline" first. Files in OneDrive or Dropbox: set the folder to "Always keep on this device". Or copy the folder to a local disk. Otherwise each file that exists only online is downloaded when it is read, or cannot be read at all.
 - Folders on a network drive or file server work as well. Use the drive letter or the network path (for example `\\server\share\Archive`) as the path of the folder to examine.
 
 ## Time
 
-The agent reads every file once, including the files inside compressed archives, and reports progress every 1,000 files. A few thousand files take minutes. An archive of several hundred gigabytes can take several hours. If the run stops, starting it again continues where it stopped.
+One command reads every file once, including the files inside compressed archives, and reports progress every 1,000 files. A few thousand files take minutes. An archive of several hundred gigabytes can take several hours; the speed is mostly the speed at which the disk or the network share delivers the files, so a run on the file server itself, or on a computer with a fast wired connection to it, is the fastest. If the run stops, starting it again continues where it stopped. The PDF is written only when every file has been read.
+
+## The file count
+
+- There is no file limit. The first page of the PDF and the specification count every file in the folder you name, and both show the same number of files on disk. The files inside compressed archives are counted apart.
+- The number can be a little lower than the count of your file manager or of a shell command. Hidden files and system files (for example `Thumbs.db`, `desktop.ini` and the lock files of open Office documents), links and folders with credential-like names are skipped, and the notes at the end of the PDF list how many.
+- If a folder cannot be read, for example for missing permissions, the first page says INCOMPLETE INVENTORY. Run the agent with an account that may read the whole folder, and start the run again.
 
 ## How to run
 
@@ -62,20 +69,20 @@ The agent reads every file once, including the files inside compressed archives,
 ```text
 Please create a TGDC Data Card with the full data format specification.
 
-1. Download two files from the release tgdc-data-card-v1.4.0 of
+1. Download two files from the release tgdc-data-card-v1.5.0 of
    https://github.com/The-General-Data-Company/tgdc-skills
-   namely tgdc-data-card-v1.4.0.tar.gz and SHA256SUMS.
+   namely tgdc-data-card-v1.5.0.tar.gz and SHA256SUMS.
    Verify the checksum with: shasum -a 256 -c SHA256SUMS --ignore-missing
    (on Linux and in Git Bash on Windows: sha256sum -c SHA256SUMS --ignore-missing;
-   in PowerShell: (Get-FileHash tgdc-data-card-v1.4.0.tar.gz).Hash must equal
+   in PowerShell: (Get-FileHash tgdc-data-card-v1.5.0.tar.gz).Hash must equal
    the value in SHA256SUMS, ignoring upper and lower case). Stop if it fails.
 2. Unpack the archive into this working folder (tar -xzf works on Windows too).
 3. Read tgdc-data-card/SKILL.md completely and follow it step by step.
 4. The full archive is in: /path/to/the/archive
    Put the report in: /path/to/an/empty/report/folder
    (on Windows for example: D:\Archive and C:\Users\Name\TGDC\Report)
-5. Run the Data Card profile and the full data format specification,
-   then render one PDF and show it to me.
+5. Run the one Data Card command of the skill (datacard.py run) until it
+   ends. It counts every file and writes the PDF. Then show me the PDF.
 ```
 
 ## Questions the agent may ask

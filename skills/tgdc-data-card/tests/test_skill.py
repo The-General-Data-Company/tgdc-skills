@@ -1,4 +1,4 @@
-"""Skill folder checks: catalog shape and the profile and render commands run from the folder."""
+"""Skill folder checks: catalog shape and the run and render commands run from the folder."""
 import hashlib
 import json
 import os
@@ -76,12 +76,12 @@ class SkillTests(unittest.TestCase):
         self.assertTrue(text.startswith('---\nname: tgdc-data-card\n'))
         self.assertEqual(ROOT.name, 'tgdc-data-card')
         self.assertTrue((ROOT / 'LICENSE.txt').is_file())
-        self.assertIn('  version: "1.4.0"', text)
+        self.assertIn('  version: "1.5.0"', text)
         self.assertEqual(len([line for line in text.splitlines() if re.match(r'^\d\. \*\*', line)]), 8)
         for name in ('references/format-spec.md', 'references/privacy.md', 'references/field-guide.md'):
             self.assertIn(name, text)
 
-    def test_actual_profile_and_render_from_skill_folder(self):
+    def test_actual_run_and_render_from_skill_folder(self):
         selected = self.base / 'selected'; selected.mkdir()
         text = selected / 'synthetic.txt'
         text.write_text('This synthetic document describes a business process for testing. ' * 12)
@@ -89,8 +89,9 @@ class SkillTests(unittest.TestCase):
         source_hash = hashlib.sha256(text.read_bytes()).digest()
         output = self.base / 'report'
         script = SCRIPTS / 'datacard.py'
-        result = subprocess.run([sys.executable, str(script), 'profile', '--source', str(selected), '--output', str(output)], cwd=self.base, capture_output=True, text=True, timeout=60)
+        result = subprocess.run([sys.executable, str(script), 'run', '--source', str(selected), '--output', str(output)], cwd=self.base, capture_output=True, text=True, timeout=120)
         self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue((output / 'TGDC-Data-Card.pdf').read_bytes().startswith(b'%PDF'))
         profile = json.loads((output / 'profile.json').read_text())
         self.assertEqual(profile['inventory']['files'], 2)
         self.assertEqual(profile['languages']['denominator'], 2)
@@ -101,7 +102,7 @@ class SkillTests(unittest.TestCase):
             self.assertEqual(stat.S_IMODE((output / 'manifest.private.json').stat().st_mode), 0o600)
         answers = output / 'answers.json'; answers.write_text(json.dumps({'provider_context': 'Synthetic test organization', 'dataset_departments': 'Synthetic operations'}))
         pdf = output / 'TGDC-Data-Card.pdf'
-        result = subprocess.run([sys.executable, str(script), 'render', '--profile', str(output / 'profile.json'), '--answers', str(answers), '--output', str(pdf)], cwd=self.base, capture_output=True, text=True, timeout=60)
+        result = subprocess.run([sys.executable, str(script), 'render', '--profile', str(output / 'profile.json'), '--answers', str(answers), '--spec', str(output / 'spec.json'), '--output', str(pdf)], cwd=self.base, capture_output=True, text=True, timeout=60)
         self.assertEqual(result.returncode, 0, result.stderr)
         from pypdf import PdfReader
         pages = PdfReader(pdf).pages
@@ -110,17 +111,17 @@ class SkillTests(unittest.TestCase):
         self.assertIn('Synthetic operations', contents)
         self.assertIn('Review', result.stdout)
 
-    def test_isolated_mode_runs_profile_and_spec(self):
+    def test_isolated_mode_runs_the_one_command(self):
         # Agent hosts may start downloaded scripts with `python -I`, which drops the script folder from sys.path.
         selected = self.base / 'isolated-input'; selected.mkdir()
         (selected / 'note.txt').write_text('This synthetic document describes a business process for testing. ' * 12)
         output = self.base / 'isolated-report'
         script = SCRIPTS / 'datacard.py'
-        for command in (['profile'], ['spec']):
-            result = subprocess.run([sys.executable, '-I', str(script), *command, '--source', str(selected), '--output', str(output)],
-                                    cwd=self.base, capture_output=True, text=True, timeout=300)
-            self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertTrue((output / 'spec.json').is_file())
+        result = subprocess.run([sys.executable, '-I', str(script), 'run', '--source', str(selected), '--output', str(output)],
+                                cwd=self.base, capture_output=True, text=True, timeout=300)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        for name in ('profile.json', 'spec.json', 'TGDC-Data-Card.pdf'):
+            self.assertTrue((output / name).is_file(), name)
 
     def test_unsupported_platform_fails_before_filesystem_work(self):
         import profiler

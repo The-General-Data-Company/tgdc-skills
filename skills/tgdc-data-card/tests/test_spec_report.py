@@ -54,7 +54,7 @@ class SpecReportTests(unittest.TestCase):
         path = self.base / (name + '.spec.json')
         path.write_text(json.dumps(spec))
         out = self.base / name
-        report.render(self.profile, self.answers, out, path)
+        F.render_example(out, path)
         return pdf_text(out)
 
     def card_only(self):

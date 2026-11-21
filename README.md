@@ -137,7 +137,7 @@ The agent asks you five times: a short interview, a check of about 200 pilot fil
 
 Reads files and folders you select on your own machine and builds one reviewable PDF in two parts. Every statement is labeled as measured, inferred, or declared by you:
 
-1. **Data Card:** file counts and sizes, formats, duplicates, rows, pages, words, dates, and the share of English in a bounded text sample, computed locally by `scripts/datacard.py`, plus context you declare, such as your rights to share the data, the business behind it, and how records relate to cases. The agent asks only about gaps, at most three questions at a time, and you can skip any of them.
+1. **Data Card:** the count and size of every selected file (there is no file limit), formats, duplicates, rows, pages, words, dates, and the share of English in a bounded text sample, computed locally by `scripts/datacard.py`, plus context you declare, such as your rights to share the data, the business behind it, and how records relate to cases. The agent asks only about gaps, at most three questions at a time, and you can skip any of them.
 2. **Data format specification:** a full pass that reads every selected file completely, computes a SHA-256 checksum of each one, and does the same for every file inside compressed archives. Archives are unpacked into a temporary folder inside your report folder, which is removed afterward; for 7z, RAR, ARJ and CAB archives the pass runs an extraction tool that is already on your machine. It reports volume by content category and file format, mailboxes, languages, the contents of compressed archives, technical drawings (sheets, sizes, project workflow) and volume by year. It holds counts, sizes, years, the extensions of known file formats and the vocabulary you declare (company line, mailbox labels, project stages; keep the labels short and generic, with no person or client names). It holds no file names, folder names, e-mail addresses, hashes, or text.
 
 **What it never does**
@@ -173,7 +173,7 @@ Reads files and folders you select on your own machine and builds one reviewable
 
 **1. The skill** (download a pinned release and verify its checksum)
 ```sh
-V=1.4.0
+V=1.5.0
 R=https://github.com/The-General-Data-Company/tgdc-skills/releases/download/tgdc-data-card-v$V
 curl -fsSLO $R/tgdc-data-card-v$V.tar.gz
 curl -fsSLO $R/SHA256SUMS
@@ -181,7 +181,7 @@ shasum -a 256 -c SHA256SUMS --ignore-missing && mkdir -p <FOLDER> && tar -xzf tg
 ```
 On Linux, use `sha256sum` instead of `shasum -a 256`. On Windows, in PowerShell:
 ```powershell
-$V = "1.4.0"
+$V = "1.5.0"
 $R = "https://github.com/The-General-Data-Company/tgdc-skills/releases/download/tgdc-data-card-v$V"
 curl.exe -fsSLO "$R/tgdc-data-card-v$V.tar.gz"
 curl.exe -fsSLO "$R/SHA256SUMS"
@@ -208,11 +208,11 @@ The privacy notes are in [`skills/tgdc-data-card/references/privacy.md`](skills/
 The agent works in this order:
 
 1. It asks which files or folders to examine and where to put the report, and asks you to confirm the authorization and exclusions above.
-2. It runs the profile script and reads the aggregate result.
+2. It runs one command, `datacard.py run`, and tells you that it can take hours. The command walks your selection once, counts every file, reads every file and writes `profile.json`, `spec.json` and the PDF. The first page of the PDF and the specification always count the same files.
 3. It asks about missing context. You can skip any question or ask for a draft right away. For the specification it asks for the company line, whether the selection is your full archive or a sample of it, which folders are mailboxes (with a short generic label for each), where your projects begin, your own project stages, and the words that mark a bill of quantities, a drawing and a schematic in your file names.
-4. It runs the full pass and tells you that it can take hours. New answers are applied by running the pass again, which reuses the private cache and takes minutes.
+4. It applies new answers by running the same command again, which reuses the private cache and takes minutes.
 5. Optional, only with your explicit consent: it writes about 60 low-resolution page images to `calibration.private/` and looks at them to correct the count of technical drawings. The agent host then processes those images. If you decline, the estimate of individual views is left out of the PDF.
-6. It renders the PDF and shows it to you.
+6. It shows you the PDF that the last run wrote.
 7. It gives you the file paths. The skill sends nothing, so you decide whether and how to share the PDF.
 
 ## Security

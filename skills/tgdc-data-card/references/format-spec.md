@@ -1,17 +1,19 @@
 # Data format specification guide
 
-The `spec` command reads every selected file, and every file inside compressed archives, on the customer's machine. It writes `spec.json` and a private cache. The `render` command turns `spec.json` into the second part of the PDF. This guide lists the configuration file, the optional visual check and the method behind each figure.
+The `run` command walks the selection once and reads every selected file, and every file inside compressed archives, on the customer's machine. It writes `spec.json`, `profile.json`, the PDF and a private cache; `spec.json` is the second part of the PDF. There is no file limit and no separate profile step. This guide lists the configuration file, the optional visual check and the method behind each figure.
 
 ## Commands
 
 ```
-datacard.py spec --source <root> [--source <root> ...] --output <report> [--config <report>/spec-config.json]
-                 [--workers N] [--parse-seconds S] [--archive-seconds S] [--max-archive-bytes N] [--max-archive-ratio N]
+datacard.py run --source <root> [--source <root> ...] --output <report> [--config <file>] [--answers <file>]
+                [--workers N] [--parse-seconds S] [--archive-seconds S] [--max-archive-bytes N] [--max-archive-ratio N]
 datacard.py spec-sample --spec-dir <report> --n 60
 datacard.py render --profile <report>/profile.json --answers <report>/answers.json --spec <report>/spec.json --output <report>/TGDC-Data-Card.pdf
 ```
 
-`spec` prints progress to stderr every 1,000 files. If it stops, the same command resumes: finished files are kept in `spec-cache.private.sqlite` and a file is read again only when its size or modification time changed. A result that was cut short (a time limit, a size limit, a missing extraction tool, an archive that was only partly readable) is read again when the limits, the available extraction tools or the mailbox folders of the configuration changed since; results that were complete are kept. The cache holds file names, folder names and hashes, so it stays private. A run with a new `spec-config.json` reuses the cache and takes minutes. Numeric options must not be negative.
+`run` uses `<report>/spec-config.json` and `<report>/answers.json` when they exist; `--config` and `--answers` name other files. It writes `<report>/TGDC-Data-Card.pdf` at the end of every finished run. `render` only writes the PDF again after `answers.json` changed; it needs the `profile.json` and `spec.json` of the same run and refuses files that count different selections.
+
+`run` prints progress to stderr every 1,000 files. If it stops, the same command resumes: finished files are kept in `spec-cache.private.sqlite` and a file is read again only when its size or modification time changed. A result that was cut short (a time limit, a size limit, a missing extraction tool, an archive that was only partly readable) is read again when the limits, the available extraction tools or the mailbox folders of the configuration changed since; results that were complete are kept. The cache holds file names, folder names and hashes, so it stays private. A run with a new `spec-config.json` reuses the cache and takes minutes. Numeric options must not be negative.
 
 Exit codes: 0 done, 2 invalid input or configuration, 3 stopped early (run the same command again).
 
@@ -65,7 +67,7 @@ The drawing count is a heuristic: pages larger than A4 count as drawings, and an
 1. Ask the customer for explicit consent. Explain that the agent host will process about 60 low-resolution page images. If the customer declines, stop here: the estimate of individual views is left out.
 2. Run `spec-sample --spec-dir <report> --n 60`. It writes `calibration.private/sample-001.png` and so on, plus `index.private.json`, which lists for each image whether it is a candidate (counted as a drawing by the rules) or not. The index holds no file names.
 3. View each image. Count: candidates that are really drawing sheets, other pages that are really drawing sheets, drawings among them that are schematics or diagrams, and for every true drawing sheet the number of separate views (plans, sections, details, elevations).
-4. Write the counts into `spec-config.json` and run `spec` again:
+4. Write the counts into `spec-config.json` and run `run` again:
 
 ```json
 "calibration": {
