@@ -134,7 +134,7 @@ class ReportTests(unittest.TestCase):
         selected = source / 'synthetic.dwg'
         selected.write_bytes(original)
         cli = str(ROOT / 'scripts/datacard.py')
-        scanned = subprocess.run([sys.executable, cli, 'profile', '--source', str(source), '--output', str(output)], capture_output=True, text=True)
+        scanned = subprocess.run([sys.executable, cli, 'run', '--source', str(source), '--output', str(output)], capture_output=True, text=True)
         self.assertEqual(scanned.returncode, 0, scanned.stderr)
         self.profile = json.loads((output / 'profile.json').read_text())
         self.assertEqual(self.profile['inventory']['files'], 1)
@@ -142,21 +142,32 @@ class ReportTests(unittest.TestCase):
         self.assertIsNone(self.profile['metrics']['files_with_extracted_text']['value'])
         answers = output / 'answers.json'
         answers.write_text('{}')
-        rendered = subprocess.run([sys.executable, cli, 'render', '--profile', str(output / 'profile.json'), '--answers', str(answers), '--output', str(self.out)], capture_output=True, text=True)
+        rendered = subprocess.run([sys.executable, cli, 'render', '--profile', str(output / 'profile.json'), '--answers', str(answers), '--spec', str(output / 'spec.json'),
+                                   '--output', str(self.out)], capture_output=True, text=True)
         self.assertEqual(rendered.returncode, 0, rendered.stderr)
+        self.assertEqual(PdfReader(self.out).pages[0].extract_text(), PdfReader(output / 'TGDC-Data-Card.pdf').pages[0].extract_text())
         first = PdfReader(self.out).pages[0].extract_text()
         self.assertIn('Not examined', first)
         self.assertIn('DWG', first)
         self.assertNotIn('0 of 0', first)
         self.assertEqual(selected.read_bytes(), original)
 
-    def test_capped_inventory_and_sample_scope_visible_on_first_page(self):
+    def test_unreadable_folders_and_sample_scope_visible_on_first_page(self):
+        self.assertIn('Measured inventory of every selected file', self.build()[0].pages[0].extract_text())
         self.profile['scope']['enumeration_complete'] = False
         for metric in self.profile['metrics'].values():
             metric['coverage']['enumeration_complete'] = False
         reader, _ = self.build()
-        self.assertIn('INCOMPLETE INVENTORY', reader.pages[0].extract_text())
+        self.assertIn('INCOMPLETE INVENTORY / some folders or files could not be counted', reader.pages[0].extract_text())
         self.assertIn('11 of 15', reader.pages[0].extract_text())
+
+    def test_selected_size_uses_a_readable_unit(self):
+        from report import _size
+        self.assertEqual([_size(count) for count in (0, 1536, 5 * 1024 ** 2, 802848090777, 8 * 1024 ** 4)],
+                         ['0.00 KiB', '1.50 KiB', '5.00 MiB', '747.71 GiB', '8.00 TiB'])
+        self.profile['inventory']['bytes'] = self.profile['metrics']['selected_bytes']['value'] = 802848090777
+        self.profile['inventory']['by_extension']['csv']['bytes'] += 802848090777 - 8693
+        self.assertIn('747.71 GiB', self.build()[0].pages[0].extract_text())
 
     def test_all_unknown_languages_have_no_english_ratio(self):
         self.profile['languages']['document_counts'] = {'unknown': 15}
@@ -245,16 +256,26 @@ class ReportTests(unittest.TestCase):
         self.assertTrue(rejected)
 
     def test_cli_render_requires_preview_before_voluntary_sharing(self):
-        p, a = self.folder / 'p.json', self.folder / 'a.json'
-        p.write_text(json.dumps(self.profile)); a.write_text(json.dumps(self.answers))
-        result = subprocess.run([sys.executable, str(ROOT / 'scripts/datacard.py'), 'render', '--profile', str(p), '--answers', str(a), '--output', str(self.out)], capture_output=True, text=True)
+        source, report = self.folder / 'source', self.folder / 'report'
+        source.mkdir()
+        (source / 'note.txt').write_text('Synthetic note for the preview check.')
+        result = subprocess.run([sys.executable, str(ROOT / 'scripts/datacard.py'), 'run', '--source', str(source), '--output', str(report)], capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        p, a = report / 'profile.json', self.folder / 'a.json'
+        a.write_text(json.dumps(self.answers))
+        without = subprocess.run([sys.executable, str(ROOT / 'scripts/datacard.py'), 'render', '--profile', str(p), '--answers', str(a), '--output', str(self.out)], capture_output=True, text=True)
+        self.assertEqual(without.returncode, 2)                 # a card always has both parts
+        self.assertIn('--spec', without.stderr)
+        self.assertFalse(self.out.exists())
+        result = subprocess.run([sys.executable, str(ROOT / 'scripts/datacard.py'), 'render', '--profile', str(p), '--answers', str(a), '--spec', str(report / 'spec.json'),
+                                 '--output', str(self.out)], capture_output=True, text=True)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn('Review', result.stdout)
         self.assertIn('voluntarily', result.stdout)
         self.assertIn('confidential', result.stdout)
 
     def test_cli_missing_dependencies_has_clear_safe_message(self):
-        result = subprocess.run([sys.executable, '-S', str(ROOT / 'scripts/datacard.py'), 'render', '--profile', 'unread.json', '--answers', 'unread.json', '--output', 'unused.pdf'], capture_output=True, text=True)
+        result = subprocess.run([sys.executable, '-S', str(ROOT / 'scripts/datacard.py'), 'render', '--profile', 'unread.json', '--answers', 'unread.json', '--spec', 'unread.json', '--output', 'unused.pdf'], capture_output=True, text=True)
         self.assertEqual(result.returncode, 2)
         self.assertIn('pinned Python dependencies', result.stderr)
         self.assertNotIn('Traceback', result.stderr)

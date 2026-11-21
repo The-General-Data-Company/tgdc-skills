@@ -33,8 +33,7 @@ class ProfileTests(unittest.TestCase):
         before = hashlib.sha256(source.read_bytes()).hexdigest()
         result = profile([self.root], self.out)
         self.assertEqual(result['inventory']['files'], 2)
-        self.assertEqual(result['metrics']['duplicate_files']['value'], 1)
-        self.assertEqual(result['metrics']['duplicate_files']['denominator'], 2)
+        self.assertIsNone(result['metrics']['duplicate_files']['value'])           # duplicates come from the full pass: test_run.py
         self.assertNotIn('order_id', json.dumps(result)); self.assertNotIn(str(self.root), json.dumps(result))
         self.assertNotIn('closed', json.dumps(result)); self.assertNotIn('workflow_completion', result['metrics'])
         self.assertEqual(before, hashlib.sha256(source.read_bytes()).hexdigest())
@@ -54,13 +53,20 @@ class ProfileTests(unittest.TestCase):
         (self.root / 'empty.txt').touch(); (self.root / 'bad.pdf').write_text('secret-error-payload')
         (self.root / 'drawing.dwg').write_bytes(b'synthetic')
         result = profile([self.root], self.out)
-        self.assertEqual(result['inventory']['files'], 3)
+        # Files with a credential-like name are counted, as the full pass counts them, and never opened for content.
+        self.assertEqual(result['inventory']['files'], 6)
+        self.assertEqual(result['inventory']['by_extension']['json']['files'], 3)
+        self.assertEqual(result['extraction']['attempted'], 2)
         self.assertEqual(result['extraction']['errors'], 1)
         self.assertEqual(result['extraction']['status_counts']['malformed'], 1)
         self.assertEqual(result['extraction']['status_counts']['unsupported'], 1)
+        self.assertEqual(result['extraction']['status_counts']['excluded'], 4)
         self.assertGreaterEqual(result['extraction']['skipped'], 3)
-        self.assertNotIn('PRIVATE_SYNTHETIC_SENTINEL', json.dumps(result))
-        self.assertNotIn('secret-error-payload', json.dumps(result))
+        manifest = (self.out / 'manifest.private.json').read_text()
+        self.assertNotIn('credentials.json', manifest)
+        for text in (json.dumps(result), manifest):
+            self.assertNotIn('PRIVATE_SYNTHETIC_SENTINEL', text)
+            self.assertNotIn('secret-error-payload', text)
 
     def test_a_pdf_with_a_duplicate_dictionary_key_is_not_counted_as_malformed(self):
         (self.root / 'duplicate.pdf').write_bytes(pdf_with_duplicate_keys())
@@ -85,18 +91,21 @@ class ProfileTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             profile([self.root / 'one.txt'], self.root)
 
-    def test_inventory_sample_and_size_caps_have_honest_denominators(self):
+    def test_sample_and_size_caps_have_honest_denominators_and_the_inventory_has_no_cap(self):
         for i in range(4):
             (self.root / f'{i}.txt').write_text('sample words')
-        result = profile([self.root], self.out, limits={'max_files': 3, 'max_sample_files': 1, 'max_file_bytes': 4})
-        self.assertFalse(result['scope']['enumeration_complete'])
-        self.assertEqual(result['inventory']['files'], 3)
-        self.assertEqual(result['extraction']['status_counts']['size_cap'], 1)
+        result = profile([self.root], self.out, limits={'max_sample_files': 1, 'max_file_bytes': 4})
+        self.assertTrue(result['scope']['enumeration_complete'])
+        self.assertEqual(result['inventory']['files'], 4)
+        self.assertEqual(result['extraction']['status_counts'], {'sample_cap': 3, 'size_cap': 1})
         self.assertIsNone(result['metrics']['duplicate_files']['value'])
         self.assertEqual(result['metrics']['duplicate_files']['denominator'], 0)
         self.assertEqual(result['languages']['denominator'], 1)
         self.assertEqual(result['languages']['document_counts'], {'unknown': 1})
-        self.assertIn('sample_cap', result['extraction']['status_counts'])
+        self.assertNotIn('max_files', result['scope']['limits'])
+        for removed in ('max_files', 'max_hash_bytes'):                 # a file limit can no longer be set
+            with self.subTest(limit=removed), self.assertRaises(ValueError):
+                profile([self.root], self.base / removed, limits={removed: 3})
 
     def test_question_ids_and_evidence_contract(self):
         (self.root / 'one.csv').write_text('id,status\n1,complete\n')
@@ -156,21 +165,22 @@ class ProfileTests(unittest.TestCase):
 
     def test_missing_detector_is_unknown_and_does_not_claim_zero_english(self):
         (self.root / 'one.txt').write_text('This synthetic document contains sufficient English text to classify a document when the local language dependency is installed and available.')
-        run = subprocess.run([sys.executable, '-S', str(SCRIPTS / 'datacard.py'), 'profile', '--source', str(self.root), '--output', str(self.out)], capture_output=True, text=True)
+        script = 'import sys; sys.path.insert(0, sys.argv[1]); import profiler; profiler.profile([sys.argv[2]], sys.argv[3])'
+        run = subprocess.run([sys.executable, '-S', '-c', script, str(SCRIPTS), str(self.root), str(self.out)], capture_output=True, text=True)
         self.assertEqual(run.returncode, 0, run.stderr)
         result = json.loads((self.out / 'profile.json').read_text())
         self.assertEqual(result['languages']['document_counts'], {'unknown': 1})
         self.assertIsNone(result['metrics']['english_document_share']['value'])
 
-    def test_hash_budget_and_symlink_subdirectory_do_not_read_outside(self):
+    def test_symlink_subdirectory_is_not_read(self):
         (self.root / 'one.txt').write_text('sample')
         elsewhere = self.base / 'elsewhere'; elsewhere.mkdir()
         (elsewhere / 'outside.txt').write_text('outside source')
         (self.root / 'link').symlink_to(elsewhere, target_is_directory=True)
-        result = profile([self.root], self.out, limits={'max_hash_bytes': 1})
+        result = profile([self.root], self.out)
         self.assertEqual(result['inventory']['files'], 1)
-        self.assertIsNone(result['metrics']['duplicate_files']['value'])
         self.assertEqual(result['extraction']['status_counts']['symlink'], 1)
+        self.assertNotIn('outside', (self.out / 'manifest.private.json').read_text())
 
     def test_unknown_extension_cannot_leak_identifier_in_shareable_inventory(self):
         (self.root / 'record.customer123').write_bytes(b'synthetic')
@@ -178,7 +188,11 @@ class ProfileTests(unittest.TestCase):
         self.assertEqual(result['inventory']['by_extension'], {'other': {'files': 1, 'bytes': 9}})
         self.assertNotIn('customer123', json.dumps(result))
         manifest = json.loads((self.out / 'manifest.private.json').read_text())
-        self.assertEqual(manifest['files'][0]['source_extension'], 'customer123')
+        self.assertEqual(manifest['files'], [])                 # the manifest lists the examined sample only
+        (self.root / 'note.TXT').write_text('sample words')
+        profile([self.root], self.base / 'second')
+        manifest = json.loads((self.base / 'second' / 'manifest.private.json').read_text())
+        self.assertEqual([(item['extension'], item['source_extension'], item['status']) for item in manifest['files']], [('txt', 'txt', 'ok')])
 
     def test_nonfinite_deadlines_are_rejected_before_output_creation(self):
         for index, deadline in enumerate([float('nan'), float('inf')]):
@@ -335,7 +349,7 @@ print('FIFO replacement rejected without blocking')
         self.assertEqual(result['extraction']['status_counts']['timeout'], 1)
 
     def test_cli_errors_do_not_expose_paths_or_source(self):
-        result = subprocess.run([sys.executable, str(SCRIPTS / 'datacard.py'), 'profile', '--source', str(self.base / 'secret-name'), '--output', str(self.out)], capture_output=True, text=True)
+        result = subprocess.run([sys.executable, str(SCRIPTS / 'datacard.py'), 'run', '--source', str(self.base / 'secret-name'), '--output', str(self.out)], capture_output=True, text=True)
         self.assertNotEqual(result.returncode, 0)
         self.assertNotIn('secret-name', result.stdout + result.stderr)
         self.assertNotIn('Traceback', result.stdout + result.stderr)

@@ -14,7 +14,6 @@ ROOT = HERE.parent
 sys.path.insert(0, str(ROOT / 'scripts'))
 sys.path.insert(0, str(HERE))
 import formatspec
-import report
 import spec_calibration
 import spec_fixture as F
 from pypdf import PdfReader
@@ -87,13 +86,12 @@ class CalibrationTests(unittest.TestCase):
         spec = self.execute(self.calibration(10, 10, 0, 20))
         path = self.base / 'spec.json'
         path.write_text(json.dumps(spec))
-        profile, answers = ROOT / 'assets/examples/profile.synthetic.json', ROOT / 'assets/examples/answers.synthetic.json'
-        report.render(profile, answers, self.base / 'with.pdf', path)
+        F.render_example(self.base / 'with.pdf', path)
         text = ' '.join(' '.join(page.extract_text() for page in PdfReader(self.base / 'with.pdf').pages).split())
         self.assertIn('Estimated individual views (plans, sections, details)', text)
         self.assertIn('visual check of 30 sampled pages', text)
         path.write_text(json.dumps(self.execute(None)))
-        report.render(profile, answers, self.base / 'without.pdf', path)
+        F.render_example(self.base / 'without.pdf', path)
         text = ' '.join(' '.join(page.extract_text() for page in PdfReader(self.base / 'without.pdf').pages).split())
         self.assertNotIn('Estimated individual views', text)
         self.assertNotIn('visual check', text)

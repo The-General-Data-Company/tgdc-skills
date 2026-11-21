@@ -61,6 +61,10 @@ class UnsupportedReportText(ValueError):
     """The bundled report fonts cannot display an explicit input character."""
 
 
+class SelectionMismatch(ValueError):
+    """profile.json and spec.json do not count the same files, so they are not from one run."""
+
+
 def _count(value):
     if isinstance(value, bool) or not isinstance(value, int) or value < 0:
         raise ValueError('Invalid count.')
@@ -86,6 +90,35 @@ def _load(path):
     if not isinstance(value, dict):
         raise ValueError('Expected a JSON object.')
     return value
+
+
+def load_answers(path):
+    """The provider answers: a JSON object of plain strings."""
+    answers = _load(path)
+    if not all(isinstance(key, str) and isinstance(value, str) for key, value in answers.items()):
+        raise ValueError('Answers must be plain strings.')
+    return answers
+
+
+def check_text(values):
+    """Raise UnsupportedReportText for a string the report fonts cannot show. The run command calls this before the full pass,
+    so that such an answer is refused in seconds and not after hours of reading."""
+    _fonts()
+    for value in values:
+        if isinstance(value, str):
+            _plain(value)
+
+
+def _same_selection(profile, spec):
+    """Both parts of a card must count the same files on disk. One run writes both files; a profile of another selection or
+    of an older, limited inventory is refused, so the first page can never show a part of what the specification counts."""
+    try:
+        totals = spec['totals']
+        same = (profile['inventory']['files'], profile['inventory']['bytes']) == (totals['held_files'], totals['held_bytes'])
+    except (KeyError, TypeError) as error:
+        raise ValueError('Invalid specification totals.') from error
+    if not same:
+        raise SelectionMismatch('The profile and the specification count different files.')
 
 
 def _validate(profile, answers):
@@ -214,6 +247,14 @@ def _number(value):
     return f'{value:,}' if isinstance(value, int) else str(value)
 
 
+def _size(count):
+    """Bytes in the largest binary unit that keeps the number readable."""
+    for power, unit in ((4, 'TiB'), (3, 'GiB'), (2, 'MiB')):
+        if count >= 1024 ** power:
+            return f'{count / 1024 ** power:,.2f} {unit}'
+    return f'{count / 1024:.2f} KiB'
+
+
 def _value(metric):
     value = metric['value']
     if value is None:
@@ -275,9 +316,12 @@ def _overview(profile, answers):
     if subline:
         story.extend([_paragraph(_short(subline, 160), 12, MUTED, 'OutfitLight'), _paragraph('Provider-declared context', 7.5, BLUE, 'Mono')])
     if not profile['scope']['enumeration_complete']:
-        story.append(_paragraph('INCOMPLETE INVENTORY / observed selected scope only', 9, colors.HexColor('#EC9A3C'), 'Mono'))
+        story.append(_paragraph('INCOMPLETE INVENTORY / some folders or files could not be counted', 9, colors.HexColor('#EC9A3C'), 'Mono'))
     else:
-        story.append(_paragraph('Measured inventory of selected files / no full-archive claim', 8, MUTED))
+        skipped = profile['scope'].get('entries_not_counted')
+        skipped = sum(skipped.values()) if isinstance(skipped, dict) and all(isinstance(value, int) and not isinstance(value, bool) for value in skipped.values()) else 0
+        note = f' / {_number(skipped)} hidden, linked or credential-like {"entry" if skipped == 1 else "entries"} not counted, see the notes' if skipped else ' / no full-archive claim'
+        story.append(_paragraph('Measured inventory of every selected file' + note, 8, MUTED))
     text_metric = metrics.get('files_with_extracted_text')
     text_value, text_scope = 'Not available', 'no evidence supplied'
     if text_metric:
@@ -286,7 +330,7 @@ def _overview(profile, answers):
         else:
             text_value = f"{_number(text_metric['value'])} of {_number(text_metric['denominator'])}"
             text_scope = 'examined sample / measured'
-    kpis = [(_number(inventory['files']), 'Selected files', 'files / measured inventory'), (f"{inventory['bytes'] / 1024:.2f} KiB" if inventory['bytes'] < 1024 ** 2 else f"{inventory['bytes'] / 1024 ** 2:.2f} MiB", 'Selected size', f"{_number(inventory['bytes'])} bytes / measured"), (text_value, 'Files with extracted text', text_scope)]
+    kpis = [(_number(inventory['files']), 'Selected files', 'files / measured inventory'), (_size(inventory['bytes']), 'Selected size', f"{_number(inventory['bytes'])} bytes / measured"), (text_value, 'Files with extracted text', text_scope)]
     cells = [[_paragraph(v, 21, WHITE, 'OutfitMedium', 27), _paragraph(label, 9, MUTED), _paragraph(scope, 7.2, MUTED)] for v, label, scope in kpis]
     table = Table([cells], colWidths=[WIDTH / 3] * 3)
     table.setStyle(TableStyle([('VALIGN', (0, 0), (-1, -1), 'TOP'), ('LEFTPADDING', (0, 0), (-1, -1), 0), ('RIGHTPADDING', (0, 0), (-1, -1), 10), ('TOPPADDING', (0, 0), (-1, -1), 12), ('BOTTOMPADDING', (0, 0), (-1, -1), 12)]))
@@ -394,23 +438,27 @@ class OutputInUse(PermissionError):
 def render(profile_path, answers_path, output_path, spec_path=None):
     """Validate first and atomically replace only a successfully built PDF.
 
-    With a specification file the data format specification pages follow the card pages."""
+    With a specification file the data format specification pages follow the card pages; it must count the same files as
+    the profile. Without an answers file the card has no provider declarations."""
     from profiler import checked_path, output_directory, verify_output_directory, require_supported_platform
     require_supported_platform()
-    profile_path, answers_path, output = map(Path, (profile_path, answers_path, output_path))
-    output = checked_path(output)
-    inputs = [portable.comparable(path.resolve()) for path in [profile_path, answers_path] + ([Path(spec_path)] if spec_path else [])]
+    profile_path, output = Path(profile_path), checked_path(Path(output_path))
+    inputs = [portable.comparable(Path(path).resolve()) for path in (profile_path, answers_path, spec_path) if path]
     if portable.comparable(output.resolve()) in inputs:
         raise ValueError('Output must differ from input files.')
     if portable.is_link_path(output) or any(portable.is_link_path(parent) for parent in output.parents):
         raise ValueError('Symlink output is not permitted.')
-    profile, answers = _load(profile_path), _load(answers_path)
+    profile, answers = _load(profile_path), load_answers(answers_path) if answers_path else {}
     _validate(profile, answers)
+    spec = _load(spec_path) if spec_path else None
+    if spec is not None:
+        from spec_report import spec_story, validate
+        validate(spec)
+        _same_selection(profile, spec)
     _fonts()
     story = _overview(profile, answers) + [PageBreak()] + _coverage(profile) + [PageBreak()] + _context(profile, answers) + [PageBreak()] + _methodology(profile)
-    if spec_path:
-        from spec_report import spec_story
-        story += spec_story(_load(spec_path))
+    if spec is not None:
+        story += spec_story(spec)
     directory = output_directory(output.parent)
     temporary = '.tgdc-card-' + uuid.uuid4().hex + '.pdf'
     created = False

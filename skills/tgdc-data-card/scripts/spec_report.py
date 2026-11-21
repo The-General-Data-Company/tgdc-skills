@@ -610,8 +610,8 @@ def category_section(spec):
     intro = ('All files held plus the contents of the compressed archives (unpacked); the archive contents are also shown in their own columns.'
              if split_inside else 'All files held.')
     chart_rows = sorted(((T.short_category(c['name']), c['bytes'] / unit.divisor) for c in spec['categories']), key=lambda item: -item[1])
-    return _section('Content by category', intro) + [_table(header, rows, widths, aligns, size=8, total=True), Spacer(1, 12),
-                                                       CategoryChart(chart_rows, f'Volume by content category ({unit.name})')]
+    chart = [Spacer(1, 12), CategoryChart(chart_rows, f'Volume by content category ({unit.name})')] if chart_rows else []      # no chart of an empty selection
+    return _section('Content by category', intro) + [_table(header, rows, widths, aligns, size=8, total=True)] + chart
 
 
 def formats_section(spec):

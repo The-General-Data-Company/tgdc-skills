@@ -19,7 +19,7 @@ from html.parser import HTMLParser
 from xml.etree import ElementTree
 
 DEFAULT_LIMITS = {
-    'max_files': 100000, 'max_sample_files': 1000,
+    'max_sample_files': 1000,
     'max_file_bytes': 50 * 1024 * 1024, 'max_pages': 50,
     'max_rows': 10000, 'max_characters': 200000,
     'parser_seconds': 15.0, 'max_expanded_bytes': 200 * 1024 * 1024,

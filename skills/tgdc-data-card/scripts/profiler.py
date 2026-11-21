@@ -1,9 +1,10 @@
 """Read-only inventory and evidence aggregation for explicitly selected roots.
 
+The inventory is every selected file, from the same walk as the full pass. Content
+is examined on a bounded sample spread evenly over that whole inventory.
 Parser/language workers receive bounded bytes, never paths. Workers are terminated
 at a wall-clock deadline. No body text reaches the result or private manifest.
 """
-import hashlib
 import importlib.metadata
 import json
 import math
@@ -13,6 +14,7 @@ import re
 import stat
 import uuid
 from collections import Counter, defaultdict
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -21,7 +23,8 @@ from questions import questions
 import portable
 import spec_language
 
-DEFAULT_LIMITS = {**PARSER_LIMITS, 'max_hash_bytes': 1024 * 1024 * 1024}
+DEFAULT_LIMITS = dict(PARSER_LIMITS)
+SAMPLE_READERS = 8           # sampled files read and parsed at the same time
 # 'accounts' is not excluded: in a business archive it is accounting, not a credential store.
 EXCLUDED_NAMES = {'credentials', 'credential', 'secrets', 'secret', 'tokens', 'token',
                   'id_rsa', 'id_dsa', 'id_ecdsa', 'id_ed25519'}
@@ -103,9 +106,14 @@ def excluded(path):
             or path.suffix.lower().lstrip('.') in EXCLUDED_EXTENSIONS)
 
 
-def extension(path):
-    suffix = path.suffix.lower().lstrip('.')
+def extension(name):
+    """Public format of a file name: its known lower-case suffix, else 'other'."""
+    suffix = source_extension(name)
     return suffix if suffix in PUBLIC_EXTENSIONS else 'other'
+
+
+def source_extension(name):
+    return os.path.splitext(name)[1].lower().lstrip('.')
 
 
 def iso_date(seconds):
@@ -117,76 +125,17 @@ def iso_date(seconds):
         return (datetime(1970, 1, 1, tzinfo=timezone.utc) + timedelta(seconds=min(max(seconds, -62135596800), 253402300799))).isoformat()
 
 
-def inventory(roots, limits):
-    files = []; excluded_counts = Counter(); complete = True
-    # Directory/file entries also have a bound, preventing empty-directory floods.
-    entry_cap = limits['max_files'] * 10
-    visited_entries = 0
-
-    def add_file(path, details):
-        files.append({'path': str(path), 'extension': extension(path), 'source_extension': path.suffix.lower().lstrip('.'), 'bytes': details.st_size,
-                      'mtime': iso_date(details.st_mtime),
-                      '_identity': portable.identity(details)})
-
-    def visit(path):
-        nonlocal complete, visited_entries
-        if len(files) >= limits['max_files'] or visited_entries >= entry_cap:
-            complete = False; return
-        if excluded(path):
-            excluded_counts['excluded'] += 1; return
-        try:
-            descriptor = open_nofollow(path, directory=True)
-        except OSError:
-            excluded_counts['io_error'] += 1; complete = False; return
-        try:
-            # Read at most the remaining bounded entry budget before sorting.
-            entries = []
-            with os.scandir(portable.scandir_target(descriptor, path)) as iterator:
-                for entry in iterator:
-                    if visited_entries + len(entries) >= entry_cap:
-                        complete = False; break
-                    entries.append(entry)
-            entries.sort(key=lambda entry: entry.name)
-            for entry in entries:
-                if len(files) >= limits['max_files']:
-                    complete = False; break
-                visited_entries += 1
-                child = path / entry.name
-                try:
-                    if portable.is_link_entry(entry):
-                        excluded_counts['symlink'] += 1; continue
-                    if excluded(child) or portable.hidden_entry(entry):
-                        excluded_counts['excluded'] += 1; continue
-                    details = portable.entry_stat(entry)
-                    if stat.S_ISDIR(details.st_mode):
-                        visit(child)
-                    elif stat.S_ISREG(details.st_mode):
-                        add_file(child, details)
-                    else:
-                        excluded_counts['special_file'] += 1
-                except OSError:
-                    excluded_counts['io_error'] += 1; complete = False
-        finally:
-            os.close(descriptor)
-
-    for root in roots:
-        if root.is_dir():
-            visit(root)
-        elif excluded(root):
-            excluded_counts['excluded'] += 1
-        elif len(files) >= limits['max_files']:
-            complete = False
-        else:
-            details = root.stat(follow_symlinks=False)
-            add_file(root, details)
-    return sorted(files, key=lambda item: item['path']), excluded_counts, complete
+def inventory(roots):
+    """Every selected file and what the walk skipped: the walk of the full pass, so both parts of a card count the same files.
+    There is no file limit."""
+    from formatspec import walk_roots        # imported here: formatspec imports this module
+    return walk_roots(roots)
 
 
-def stratified_sample(files, maximum):
-    groups = defaultdict(list)
-    for index, item in enumerate(files):
-        if item['extension'] in SUPPORTED:
-            groups[item['extension']].append(index)
+def stratified_sample(groups, maximum):
+    """Positions of the files whose content is examined. groups maps each supported extension to the positions of its files in
+    path order. Every extension gets a share in turn, and the positions within an extension are evenly spaced over the whole
+    inventory, so no folder is preferred."""
     quotas = Counter(); remaining = min(maximum, sum(map(len, groups.values())))
     while remaining:
         for kind in sorted(groups):
@@ -197,7 +146,6 @@ def stratified_sample(files, maximum):
     selected = set()
     for kind, group in groups.items():
         count = quotas[kind]
-        # Even positions within each extension, avoiding a first-folder sample.
         for index in range(count):
             selected.add(group[((2 * index + 1) * len(group)) // (2 * count)])
     return selected
@@ -248,14 +196,14 @@ def bounded_extract(kind, data, limits):
     return result
 
 
-def read_complete(item, maximum):
-    descriptor = open_nofollow(item['path'])
+def read_complete(path, expected, maximum):
+    descriptor = open_nofollow(path)
     with os.fdopen(descriptor, 'rb') as source:
         before = os.fstat(source.fileno())
         if not stat.S_ISREG(before.st_mode):
             raise OSError('Source is not regular.')
         identity = portable.identity(before)
-        if identity != item['_identity']:
+        if identity != expected:
             return None, 'changed'
         data = source.read(maximum + 1)
         after = os.fstat(source.fileno())
@@ -306,7 +254,8 @@ def write_json(directory, filename, payload, private=False):
     temporary = '.datacard-' + uuid.uuid4().hex
     descriptor = portable.open_at(directory, temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600 if private else 0o644)
     try:
-        with os.fdopen(descriptor, 'w', encoding='utf-8', newline='\n') as stream:
+        # A private file may hold a path with bytes that are not text (a legacy file name); it is written escaped, never refused.
+        with os.fdopen(descriptor, 'w', encoding='utf-8', newline='\n', errors='backslashreplace' if private else 'strict') as stream:
             portable.fchmod(stream.fileno(), 0o600 if private else 0o644)
             json.dump(payload, stream, indent=2, ensure_ascii=False, allow_nan=False); stream.write('\n')
         portable.replace_at(directory, temporary, filename)
@@ -342,55 +291,86 @@ def prepare_roots(sources, output):
     return roots, output
 
 
-def profile(sources, output, limits=None):
-    """Return and save aggregate profile; save local-only manifest separately."""
+def examine(entry, kind, limits):
+    """Evidence of one sampled file: read at most the file size limit, then parse in a worker with a deadline."""
+    if entry.size > limits['max_file_bytes']:
+        return empty_result('size_cap')
+    try:
+        data, read_error = read_complete(entry.path, (entry.dev, entry.ino, entry.size, entry.mtime_ns), limits['max_file_bytes'])
+    except OSError:
+        return empty_result('io_error')
+    if read_error:
+        return empty_result(read_error)
+    try:
+        return bounded_extract(kind, data, limits)
+    except (OSError, MemoryError):            # no process or no memory for this one file: it is counted, the run goes on
+        return empty_result('io_error')
+
+
+def sample_readers(workers=None):
+    """Files of the content sample read at the same time: the readers of the full pass, at most 8. Each one can hold a whole
+    file of the sample in memory, so the memory rule of the full pass applies here too."""
+    from formatspec import default_workers       # imported here: formatspec imports this module
+    return max(1, min(SAMPLE_READERS, workers or default_workers()))
+
+
+def profile(sources, output, limits=None, walked=None, totals=None, workers=None):
+    """Return and save the aggregate profile; save the local-only manifest of the examined sample separately.
+
+    walked: (roots, entries, walk statistics) of a walk the caller has already made, so that the full pass and the profile
+    describe the same files. Without it the selected roots are walked here.
+    totals: the totals of the full pass over the same walk; they give the count of exact duplicate copies.
+    workers: the number of readers the caller chose for the full pass, if any."""
     require_supported_platform()
     limits = validate_limits(limits)
-    roots, output = prepare_roots(sources, output)
-    files, exclusions, complete = inventory(roots, limits)
-    selected = stratified_sample(files, limits['max_sample_files'])
-    statuses = Counter(exclusions); language_counts = Counter(); language_reasons = Counter()
-    hashes = []; hashed_bytes = 0; attempted = succeeded = 0
+    if walked is None:
+        roots, output = prepare_roots(sources, output)
+        entries, walk = inventory(roots)
+    else:
+        roots, entries, walk = walked
+        output = checked_path(output)
+    complete = not (walk.get('unreadable_folders') or walk.get('unreadable_entries'))
+    statuses = Counter({key: value for key, value in (
+        ('excluded', walk.get('hidden_entries', 0) + walk.get('credential_folders', 0)), ('symlink', walk.get('symlinks', 0)),
+        ('special_file', walk.get('special_files', 0)), ('io_error', walk.get('unreadable_folders', 0) + walk.get('unreadable_entries', 0))) if value})
+    kinds = defaultdict(lambda: {'files': 0, 'bytes': 0})
+    supported = defaultdict(list)
+    total_bytes = 0; earliest = latest = None
+    for position, entry in enumerate(entries):
+        kind = extension(entry.name)
+        kinds[kind]['files'] += 1; kinds[kind]['bytes'] += entry.size; total_bytes += entry.size
+        if earliest is None or entry.mtime_ns < earliest:
+            earliest = entry.mtime_ns
+        if latest is None or entry.mtime_ns > latest:
+            latest = entry.mtime_ns
+        if entry.credential:                 # counted, never opened for content
+            statuses['excluded'] += 1
+        elif kind in SUPPORTED:
+            supported[kind].append(position)
+        else:
+            statuses['unsupported'] += 1
+    supported_files = sum(map(len, supported.values()))
+    selected = sorted(stratified_sample(supported, limits['max_sample_files']))
+    if supported_files > len(selected):
+        statuses['sample_cap'] += supported_files - len(selected)
+    language_counts = Counter(); language_reasons = Counter()
+    attempted = succeeded = 0
     rows = pages = characters = words = no_text_pages = 0
     row_files = pdf_files = text_files = complete_text_files = files_with_extracted_text = 0
     known_row_totals = known_page_totals = 0
     row_totals = page_totals = 0; content_dates = []
     private_files = []
-    for index, item in enumerate(files):
-        item['sha256'] = None
-        item['hash_status'] = 'file_size_cap' if item['bytes'] > limits['max_file_bytes'] else 'total_hash_byte_cap'
-        data = None; read_error = None
-        allowed_hash = item['bytes'] <= limits['max_file_bytes'] and hashed_bytes + item['bytes'] <= limits['max_hash_bytes']
-        if allowed_hash or index in selected:
-            if item['bytes'] <= limits['max_file_bytes']:
-                try:
-                    data, read_error = read_complete(item, limits['max_file_bytes'])
-                except OSError:
-                    read_error = 'io_error'
-            else:
-                read_error = 'size_cap'
-        if data is not None and allowed_hash:
-            item['sha256'] = hashlib.sha256(data).hexdigest(); item['hash_status'] = 'complete'; hashes.append(item['sha256']); hashed_bytes += len(data)
-        if read_error:
-            item['hash_status'] = read_error
-        kind = item['extension']
-        if kind not in SUPPORTED:
-            evidence = empty_result('unsupported')
-        elif index not in selected:
-            evidence = empty_result('sample_cap')
-        else:
-            attempted += 1
-            if read_error:
-                evidence = empty_result(read_error)
-            else:
-                evidence = bounded_extract(kind, data, limits)
-            language = evidence.get('language', 'unknown')
-            language_counts[language] += 1
-            if language == 'unknown':
-                language_reasons[evidence.get('language_reason', evidence['status'])] += 1
-        item['status'] = evidence['status']; item['evidence'] = evidence
-        statuses[item['status']] += 1
-        if item['status'] in SUCCESS:
+    with ThreadPoolExecutor(max_workers=sample_readers(workers)) as readers:
+        evidences = list(readers.map(lambda position: examine(entries[position], extension(entries[position].name), limits), selected))
+    for position, evidence in zip(selected, evidences):
+        entry = entries[position]; kind = extension(entry.name)
+        attempted += 1
+        language = evidence.get('language', 'unknown')
+        language_counts[language] += 1
+        if language == 'unknown':
+            language_reasons[evidence.get('language_reason', evidence['status'])] += 1
+        statuses[evidence['status']] += 1
+        if evidence['status'] in SUCCESS:
             succeeded += 1; text_files += 1
             complete_text_files += bool(evidence['text_complete'])
             files_with_extracted_text += bool(evidence.get('has_extracted_text', False))
@@ -407,17 +387,15 @@ def profile(sources, output, limits=None):
                     known_page_totals += 1; page_totals += evidence['pages_total']
             if evidence['content_date']:
                 content_dates.append(evidence['content_date'])
-        item.pop('_identity'); private_files.append(item)
-    kinds = defaultdict(lambda: {'files': 0, 'bytes': 0})
-    for item in files:
-        kinds[item['extension']]['files'] += 1; kinds[item['extension']]['bytes'] += item['bytes']
-    scope_coverage = {'inventory_files': len(files), 'enumeration_complete': complete}
-    sample_coverage = {**scope_coverage, 'sampled_files': attempted, 'successful_files': succeeded, 'selection': 'deterministic extension-stratified round-robin quotas; evenly spaced paths per extension'}
+        private_files.append({'path': entry.path, 'extension': kind, 'source_extension': source_extension(entry.name), 'bytes': entry.size,
+                              'mtime': iso_date(entry.mtime_ns / 1e9), 'status': evidence['status'], 'evidence': evidence})
+    files = len(entries)
+    scope_coverage = {'inventory_files': files, 'enumeration_complete': complete}
+    hashed = totals['hashed_files'] if totals else 0
+    sample_coverage = {**scope_coverage, 'sampled_files': attempted, 'successful_files': succeeded, 'selection': 'deterministic extension-stratified round-robin quotas; evenly spaced paths per extension over the whole inventory'}
     text_coverage = {**sample_coverage, 'complete_text_files': complete_text_files, 'text_character_limit_per_document': limits['max_characters']}
     row_coverage = {**sample_coverage, 'record_files': row_files, 'files_with_known_total': known_row_totals}
     page_coverage = {**sample_coverage, 'pdf_files': pdf_files, 'files_with_known_total': known_page_totals}
-    mtime = sorted(item['mtime'] for item in files)
-    hash_coverage = {**scope_coverage, 'hashed_files': len(hashes), 'hashed_bytes': hashed_bytes, 'max_hash_bytes': limits['max_hash_bytes']}
     languages_method = LANGUAGE_METHOD
     try:
         installed_language_version = importlib.metadata.version('py3langid')
@@ -427,12 +405,12 @@ def profile(sources, output, limits=None):
         languages_method = 'unavailable; language unknown (install pinned py3langid dependency)'
     english_count = language_counts.get('en', 0)
     metrics = {
-        'selected_files': metric(len(files), 'files', len(files), 'regular non-hidden non-credential files enumerated in selected roots', scope_coverage),
+        'selected_files': metric(files, 'files', files, 'every regular non-hidden file in the selected roots; credential-like names are counted, never opened', scope_coverage),
         'documents_processed': metric(succeeded, 'documents', attempted, 'successfully extracted sampled files, including tables; not case counts', sample_coverage),
         'files_with_extracted_text': metric(files_with_extracted_text if attempted else None, 'files', attempted, 'successfully parsed sampled files with non-whitespace text in retained extraction sample; not a readability or content quality judgment', text_coverage),
-        'selected_bytes': metric(sum(item['bytes'] for item in files), 'bytes', len(files), 'filesystem file sizes', scope_coverage),
-        'format_file_shares': metric({kind: counts['files'] / len(files) for kind, counts in sorted(kinds.items())} if files else None, 'fraction', len(files), 'file count by normalized extension divided by enumerated file count', scope_coverage),
-        'duplicate_files': metric(len(hashes) - len(set(hashes)) if hashes else None, 'files', len(hashes), 'exact full-byte SHA-256 duplicates; extra copies beyond one per hash', hash_coverage),
+        'selected_bytes': metric(total_bytes, 'bytes', files, 'filesystem file sizes', scope_coverage),
+        'format_file_shares': metric({kind: counts['files'] / files for kind, counts in sorted(kinds.items())} if files else None, 'fraction', files, 'file count by normalized extension divided by enumerated file count', scope_coverage),
+        'duplicate_files': metric(hashed - totals['unique_contents'] if hashed else None, 'files', hashed, 'exact full-byte SHA-256 duplicates among every file the full pass hashed, on disk and inside archives; extra copies beyond one per hash', {**scope_coverage, 'hashed_files': hashed}),
         'rows_processed': metric(rows if row_files else None, 'records', row_files, 'CSV/XLSX data rows exclude first non-empty header; JSON object=1, array elements, JSONL nonblank lines; processed sample only', row_coverage),
         'rows_known_total': metric(row_totals if known_row_totals else None, 'records', known_row_totals, 'sum of known row totals only; never a full selected archive count', row_coverage),
         'pdf_pages_processed': metric(pages if pdf_files else None, 'pages', pdf_files, 'pages inspected in sampled successfully parsed PDFs', page_coverage),
@@ -440,13 +418,13 @@ def profile(sources, output, limits=None):
         'pdf_no_text_pages': metric(no_text_pages if pdf_files else None, 'pages', pages, 'processed PDF pages yielding no extractable text; OCR candidate only, does not prove scan', page_coverage),
         'extracted_characters': metric(characters if text_files else None, 'characters', text_files, 'Unicode characters in bounded extracted text samples; includes separators', text_coverage),
         'extracted_words': metric(words if text_files else None, 'words', text_files, 'Unicode word-regex matches in extracted text samples; not tokens', text_coverage),
-        'filesystem_mtime_bounds': metric({'earliest': mtime[0], 'latest': mtime[-1]} if mtime else None, 'UTC datetime bounds', len(mtime), 'filesystem last-modified timestamps; not content creation or history', scope_coverage),
+        'filesystem_mtime_bounds': metric({'earliest': iso_date(earliest / 1e9), 'latest': iso_date(latest / 1e9)} if files else None, 'UTC datetime bounds', files, 'filesystem last-modified timestamps; not content creation or history', scope_coverage),
         'eml_content_date_bounds': metric({'earliest': min(content_dates), 'latest': max(content_dates)} if content_dates else None, 'UTC datetime bounds', len(content_dates), 'parseable timezone-aware Date headers in sampled EML files; header assertions, not verified event dates', sample_coverage),
         'english_document_share': metric(english_count / attempted if attempted and attempted > language_counts.get('unknown', 0) else None, 'fraction', attempted, languages_method + '; classified-English fraction of attempted sample, including unknown and failed files in denominator; null when all languages unknown; classification may be incorrect; no population or true-language bound estimate', {**sample_coverage, 'unknown_documents': language_counts.get('unknown', 0)}, basis='inferred'),
     }
     limitations = [
         'Only explicitly selected local roots are profiled; archive completeness, rights and provider context require answers.',
-        'Skipped counts include encountered excluded filesystem entries; hidden subtrees are not traversed and their file counts are unknown. Credential exclusions use known filename patterns, not a complete secret or privacy audit.',
+        'The inventory counts every selected file. Skipped counts include encountered excluded filesystem entries; hidden subtrees and folders with a credential-like name are not traversed and their file counts are unknown. Credential exclusions use known filename patterns, not a complete secret or privacy audit.',
         'No networking, OCR, native CAD or legacy Office extraction; unsupported files remain inventory only.',
         'Known format extensions are counted separately; arbitrary or absent filename suffixes are grouped as other in shared inventory to avoid disclosing identifiers. Exact suffixes remain private.',
         'Text is a bounded sample. Words and characters are measured; tokens, cases and workflow completion are not inferred.',
@@ -458,19 +436,18 @@ def profile(sources, output, limits=None):
         'This local scanner does not anonymize content or guarantee offline isolation of the host model or application.',
     ]
     if not complete:
-        limitations.append('Enumeration was capped or incomplete; inventory values describe only the enumerated subset.')
-    if len(selected) < sum(item['extension'] in SUPPORTED for item in files):
+        limitations.append('Some folders or entries could not be read; inventory values describe only the readable part of the selection.')
+    if len(selected) < supported_files:
         limitations.append('Content extraction was sampled; unsampled supported files have status sample_cap.')
-    if len(hashes) < len(files):
-        limitations.append('Duplicate measurement covers only fully read hashed files within file and total hashing byte limits.')
     if any(statuses[status] for status in ('capped', 'size_cap', 'decompression_cap', 'timeout')):
         limitations.append('Some inputs reached parser, content, size or time limits; processed quantities must not be presented as full totals.')
     errors = sum(statuses[status] for status in ERRORS)
     skipped = sum(statuses.values()) - succeeded - errors
     result = {
         'schema_version': '1.0', 'generated_at': datetime.now(timezone.utc).isoformat(),
-        'scope': {'kind': 'selected_files', 'selected_root_count': len(roots), 'enumeration_complete': complete, 'limits': limits, 'selection_method': sample_coverage['selection'], 'hidden_and_credentials_excluded': True, 'symlinks_followed': False},
-        'inventory': {'files': len(files), 'bytes': sum(item['bytes'] for item in files), 'by_extension': dict(sorted(kinds.items()))},
+        'scope': {'kind': 'selected_files', 'selected_root_count': len(roots), 'enumeration_complete': complete, 'limits': limits, 'selection_method': sample_coverage['selection'], 'hidden_and_credentials_excluded': True, 'symlinks_followed': False,
+                  'entries_not_counted': {key: walk.get(key, 0) for key in ('hidden_entries', 'credential_folders', 'symlinks', 'special_files')}},
+        'inventory': {'files': files, 'bytes': total_bytes, 'by_extension': dict(sorted(kinds.items()))},
         'extraction': {'attempted': attempted, 'succeeded': succeeded, 'errors': errors, 'skipped': skipped, 'skipped_basis': 'encountered inventory files and excluded filesystem entries; unvisited subtree file counts unknown', 'status_counts': dict(sorted(statuses.items()))},
         'metrics': metrics,
         'languages': {'document_counts': dict(sorted(language_counts.items())), 'denominator': attempted, 'unknown_documents': language_counts.get('unknown', 0), 'method': languages_method, 'basis': 'inferred', 'coverage': sample_coverage, 'unknown_reasons': dict(sorted(language_reasons.items()))},
@@ -478,7 +455,9 @@ def profile(sources, output, limits=None):
     }
     checked_path(output)
     output_fd = output_directory(output)
-    manifest = {'schema_version': '1.0', 'generated_at': result['generated_at'], 'privacy': 'local_only_do_not_share', 'sources': [str(root) for root in roots], 'files': private_files, 'excluded_status_counts': dict(sorted(exclusions.items())), 'limits': limits}
+    manifest = {'schema_version': '1.0', 'generated_at': result['generated_at'], 'privacy': 'local_only_do_not_share', 'sources': [str(root) for root in roots],
+                'files': private_files, 'files_basis': 'the examined content sample only; the private cache of the full pass holds the record of every file',
+                'excluded_status_counts': {key: statuses[key] for key in ('excluded', 'io_error', 'special_file', 'symlink') if statuses[key]}, 'limits': limits}
     try:
         verify_output_directory(output, output_fd)
         write_json(output_fd, 'manifest.private.json', manifest, private=True)

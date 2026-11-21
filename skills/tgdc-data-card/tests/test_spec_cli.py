@@ -1,4 +1,4 @@
-"""The datacard.py spec, spec-sample and render commands run from the skill folder."""
+"""The datacard.py run, spec-sample and render commands run from the skill folder."""
 import json
 import os
 import subprocess
@@ -29,7 +29,7 @@ class CliTests(unittest.TestCase):
         cls.config = cls.base / 'spec-config.json'
         cls.config.write_text(json.dumps(cls.fx.config))
         cls.out = cls.base / 'report'
-        cls.spec_run = cli('spec', '--source', cls.fx.data, '--output', cls.out, '--config', cls.config, '--workers', 2, cwd=cls.base)
+        cls.spec_run = cli('run', '--source', cls.fx.data, '--output', cls.out, '--config', cls.config, '--workers', 2, cwd=cls.base)
 
     @classmethod
     def tearDownClass(cls):
@@ -46,9 +46,8 @@ class CliTests(unittest.TestCase):
             self.assertNotIn(token.lower(), (run.stdout + run.stderr).lower(), token)
 
     def test_render_with_the_specification_writes_one_two_part_pdf(self):
-        profile = self.base / 'profile-out'
-        done = cli('profile', '--source', self.fx.data, '--output', profile, cwd=self.base)
-        self.assertEqual(done.returncode, 0, done.stderr)
+        profile = self.out
+        self.assertIn('Content by category', '\n'.join(page.extract_text() for page in PdfReader(self.out / 'TGDC-Data-Card.pdf').pages))
         answers = self.base / 'answers.json'
         answers.write_text(json.dumps({'provider_context': 'Synthetic test organization'}))
         pdf = self.base / 'TGDC-Data-Card.pdf'
@@ -66,20 +65,23 @@ class CliTests(unittest.TestCase):
 
     def test_interrupted_command_exits_with_three_and_the_same_command_resumes(self):
         out = self.base / 'resume'
-        first = cli('spec', '--source', self.fx.data, '--output', out, '--config', self.config, '--workers', 2, '--stop-after', 15, cwd=self.base)
+        first = cli('run', '--source', self.fx.data, '--output', out, '--config', self.config, '--workers', 2, '--stop-after', 15, cwd=self.base)
         self.assertEqual(first.returncode, 3, first.stderr)
         self.assertIn('run the same command again to resume', first.stderr)
-        second = cli('spec', '--source', self.fx.data, '--output', out, '--config', self.config, '--workers', 2, cwd=self.base)
+        self.assertEqual(sorted(path.name for path in out.iterdir()), ['spec-cache.private.sqlite'])      # no card of a part of the files
+        second = cli('run', '--source', self.fx.data, '--output', out, '--config', self.config, '--workers', 2, cwd=self.base)
         self.assertEqual(second.returncode, 0, second.stderr)
         self.assertEqual(json.loads((out / 'spec.json').read_text()), json.loads((self.out / 'spec.json').read_text()))
+        self.assertEqual(json.loads((out / 'profile.json').read_text())['inventory'], json.loads((self.out / 'profile.json').read_text())['inventory'])
+        self.assertTrue((out / 'TGDC-Data-Card.pdf').read_bytes().startswith(b'%PDF'))
 
     def test_bad_configuration_and_unsafe_output_fail_with_exit_two(self):
         bad = self.base / 'bad.json'
         bad.write_text('{"nonsense": 1}')
-        done = cli('spec', '--source', self.fx.data, '--output', self.base / 'o1', '--config', bad, cwd=self.base)
+        done = cli('run', '--source', self.fx.data, '--output', self.base / 'o1', '--config', bad, cwd=self.base)
         self.assertEqual(done.returncode, 2)
         self.assertIn('Unknown configuration key', done.stderr)
-        done = cli('spec', '--source', self.fx.data, '--output', self.fx.data / 'inside', cwd=self.base)
+        done = cli('run', '--source', self.fx.data, '--output', self.fx.data / 'inside', cwd=self.base)
         self.assertEqual(done.returncode, 2)
 
     def test_page_sample_writes_private_images_with_candidate_flags_only(self):
@@ -117,13 +119,13 @@ class CliLimitTests(unittest.TestCase):
             for option, value in [('--workers', -1), ('--parse-seconds', -5), ('--archive-seconds', -0.5), ('--max-archive-bytes', -1),
                                   ('--max-archive-ratio', -200), ('--parse-seconds', 'nan'), ('--archive-seconds', 'inf')]:
                 with self.subTest(option=option, value=value):
-                    done = cli('spec', '--source', base / 'data', '--output', base / 'out', option, value, cwd=base)
+                    done = cli('run', '--source', base / 'data', '--output', base / 'out', option, value, cwd=base)
                     self.assertEqual(done.returncode, 2)
                     self.assertIn(option, done.stderr)
                     self.assertFalse((base / 'out').exists())
             done = cli('spec-sample', '--spec-dir', base / 'out', '--n', -3, cwd=base)
             self.assertEqual(done.returncode, 2)
-            ok = cli('spec', '--source', base / 'data', '--output', base / 'out', '--parse-seconds', 30, '--max-archive-ratio', 100, cwd=base)
+            ok = cli('run', '--source', base / 'data', '--output', base / 'out', '--parse-seconds', 30, '--max-archive-ratio', 100, cwd=base)
             self.assertEqual(ok.returncode, 0, ok.stderr)
 
 

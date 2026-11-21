@@ -16,7 +16,7 @@ ROOT = HERE.parent
 sys.path.insert(0, str(ROOT / 'scripts'))
 sys.path.insert(0, str(HERE))
 import formatspec
-import report
+import spec_fixture as F
 import spec_report
 import spec_samples as S
 import spec_taxonomy as T
@@ -65,7 +65,7 @@ class AdversarialNames(unittest.TestCase):
         cls.spec = formatspec.run_spec([cls.data], cls.out, config=cls.config, workers=2, tools={}, report_date=NOW, log=LOG)
         cls.path = cls.out / 'spec.json'
         pdf = cls.base / 'card.pdf'
-        report.render(ROOT / 'assets/examples/profile.synthetic.json', ROOT / 'assets/examples/answers.synthetic.json', pdf, cls.path)
+        F.render_example(pdf, cls.path)
         cls.pdf_text = ' '.join(' '.join(page.extract_text() for page in PdfReader(pdf).pages).split())
 
     @classmethod

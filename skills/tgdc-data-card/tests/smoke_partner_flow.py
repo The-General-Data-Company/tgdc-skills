@@ -1,5 +1,5 @@
-"""The partner's flow end to end, as SKILL.md describes it: a fresh virtual environment, then profile, full pass and render
-through the command line, on a folder with non-ASCII names, nested archives, e-mail and documents.
+"""The partner's flow end to end, as SKILL.md describes it: a fresh virtual environment, then the one run command through
+the command line, on a folder with non-ASCII names, nested archives, e-mail and documents.
 
 Run: python tests/smoke_partner_flow.py <empty work folder>. Exits non-zero on any failure."""
 import hashlib
@@ -72,19 +72,21 @@ def main(work):
     python = environment / ('Scripts/python.exe' if os.name == 'nt' else 'bin/python')
     subprocess.run([str(python), '-m', 'pip', 'install', '-q', '--index-url', 'https://pypi.org/simple',
                     '--requirement', str(SKILL / 'scripts' / 'requirements.txt')], check=True)
-    run(python, 'profile', '--source', data, '--output', report)
+    run(python, 'run', '--source', data, '--output', report)                    # first run, before the customer has answered
+    first = json.loads((report / 'profile.json').read_text(encoding='utf-8'))['inventory']
     (report / 'spec-config.json').write_text(json.dumps({
         'company': 'Muster Bau GmbH', 'sector_line': 'Construction and engineering', 'month': 'November 2026', 'scope': 'full archive',
         'mailboxes': [{'root': str(data / 'Mail'), 'label': 'Mailbox 1 (company)'}],
         'project_roots': [str(data / 'Projekte')], 'drawing_patterns': ['Grundriss', 'Zeichnung']}), encoding='utf-8')
-    run(python, 'spec', '--source', data, '--output', report, '--config', report / 'spec-config.json')
-    (report / 'answers.json').write_text('{}', encoding='utf-8')
-    run(python, 'render', '--profile', report / 'profile.json', '--answers', report / 'answers.json', '--spec', report / 'spec.json',
-        '--output', report / 'TGDC-Data-Card.pdf')
+    (report / 'answers.json').write_text(json.dumps({'provider_context': 'Synthetic construction company'}), encoding='utf-8')
+    run(python, 'run', '--source', data, '--output', report)                    # the same command again; it finds both answer files
     spec = json.loads((report / 'spec.json').read_text(encoding='utf-8'))
+    inventory = json.loads((report / 'profile.json').read_text(encoding='utf-8'))['inventory']
     archives = spec['methodology']['archives']
     held, members = spec['totals']['held_files'], spec['parts']['archive_contents']['files']
     problems = []
+    if inventory != first or (inventory['files'], inventory['bytes']) != (held, spec['totals']['held_bytes']):
+        problems.append(f'the first page counts {inventory["files"]} files, the specification {held}')
     if spec.get('scope') != 'full archive':
         problems.append(f"scope {spec.get('scope')!r} != 'full archive'")
     if held != 4 + with_seven:                                 # files on disk; archive members are counted apart
