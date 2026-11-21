@@ -158,7 +158,7 @@ class ReportTests(unittest.TestCase):
         for metric in self.profile['metrics'].values():
             metric['coverage']['enumeration_complete'] = False
         reader, _ = self.build()
-        self.assertIn('INCOMPLETE INVENTORY / some folders or files could not be read', reader.pages[0].extract_text())
+        self.assertIn('INCOMPLETE INVENTORY / some folders or files could not be counted', reader.pages[0].extract_text())
         self.assertIn('11 of 15', reader.pages[0].extract_text())
 
     def test_selected_size_uses_a_readable_unit(self):

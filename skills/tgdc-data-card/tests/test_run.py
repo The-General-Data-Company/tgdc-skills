@@ -176,7 +176,7 @@ class OneWalkTests(Base):
         profile, spec = load(self.out / 'profile.json'), load(self.out / 'spec.json')
         self.assertFalse(profile['scope']['enumeration_complete'])
         self.assertEqual((profile['inventory']['files'], spec['totals']['held_files'], spec['methodology']['unreadable_folders']), (1, 1, 1))
-        self.assertIn('INCOMPLETE INVENTORY / some folders or files could not be read', first_page(self.out / 'TGDC-Data-Card.pdf'))
+        self.assertIn('INCOMPLETE INVENTORY / some folders or files could not be counted', first_page(self.out / 'TGDC-Data-Card.pdf'))
         self.assertIn('could not be read', done.stdout)
 
     def test_two_disjoint_roots_and_a_single_file_root(self):

@@ -316,7 +316,7 @@ def _overview(profile, answers):
     if subline:
         story.extend([_paragraph(_short(subline, 160), 12, MUTED, 'OutfitLight'), _paragraph('Provider-declared context', 7.5, BLUE, 'Mono')])
     if not profile['scope']['enumeration_complete']:
-        story.append(_paragraph('INCOMPLETE INVENTORY / some folders or files could not be read', 9, colors.HexColor('#EC9A3C'), 'Mono'))
+        story.append(_paragraph('INCOMPLETE INVENTORY / some folders or files could not be counted', 9, colors.HexColor('#EC9A3C'), 'Mono'))
     else:
         skipped = profile['scope'].get('entries_not_counted')
         skipped = sum(skipped.values()) if isinstance(skipped, dict) and all(isinstance(value, int) and not isinstance(value, bool) for value in skipped.values()) else 0
